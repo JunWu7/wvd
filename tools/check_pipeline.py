@@ -121,7 +121,7 @@ def run_step_2():
     shutil.rmtree('build', ignore_errors=True)
 
     # 執行 update_zh_tw.py
-    res = subprocess.run([sys.executable, 'update_zh_tw.py'])
+    res = subprocess.run([sys.executable, os.path.join('tools', 'update_zh_tw.py')])
     if res.returncode != 0:
         print("[錯誤] 繁體語系更新失敗！")
         sys.exit(1)
@@ -142,7 +142,7 @@ def run_step_2():
         sys.exit(1)
 
     # 修補動態資源與清理
-    subprocess.run([sys.executable, 'update_zh_tw.py'])
+    subprocess.run([sys.executable, os.path.join('tools', 'update_zh_tw.py')])
     shutil.rmtree('build', ignore_errors=True)
 
     print(f"[成功] 繁體中文版已成功打包至 app_build/wvd/wvd.exe (v{local_ver_str})！")
@@ -163,7 +163,7 @@ def run_step_3():
         return
 
     print(f"[資訊] 正在生成 v{local_ver_str} 的 Release 發布 ZIP 壓縮檔與 release.json...")
-    res = subprocess.run([sys.executable, 'create_release_zh_tw.py'])
+    res = subprocess.run([sys.executable, os.path.join('tools', 'create_release_zh_tw.py')])
     if res.returncode != 0:
         print("[錯誤] 生成 Release 發布檔失敗！")
         sys.exit(1)

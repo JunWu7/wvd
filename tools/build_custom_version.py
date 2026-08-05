@@ -62,24 +62,7 @@ def build_custom_version(target_version="2.4.12"):
         print(f"[錯誤] 打包 v{target_version} 至 app_build/ 失敗！")
         return False
 
-    # 5. 修補 app_build/wvd 的 config.json (設 LAST_VERSION = target_version)
-    build_config = os.path.join('app_build', 'wvd', 'config.json')
-    if os.path.exists(os.path.dirname(build_config)):
-        data = {}
-        if os.path.exists(build_config):
-            try:
-                with open(build_config, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-            except Exception:
-                pass
-        if 'GENERAL' not in data or not isinstance(data['GENERAL'], dict):
-            data['GENERAL'] = {}
-        data['GENERAL']['LANGUAGE'] = 'zh_TW'
-        data['GENERAL']['LAST_VERSION'] = target_version
-        with open(build_config, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
-
-    # 6. 再次執行 update_zh_tw.py 對 app_build 原地修補 quest.json 與 CHANGES_LOG
+    # 5. 再次執行 update_zh_tw.py 對 app_build 原地修補 quest.json 與 CHANGES_LOG
     subprocess.run([sys.executable, 'update_zh_tw.py'])
     shutil.rmtree('build', ignore_errors=True)
 

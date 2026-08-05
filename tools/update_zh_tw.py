@@ -93,6 +93,12 @@ def prepare_patched_src():
                     if file == 'main.py':
                         tw_code_content = tw_code_content.replace('OWNER = "arnold2957"', 'OWNER = "JunWu7"')
                         
+                    if file == 'utils.py':
+                        tw_code_content = tw_code_content.replace(
+                            "LANGUAGE = GetOneVarInGeneralConfig('LANGUAGE', \"zh_CN\")",
+                            "LANGUAGE = GetOneVarInGeneralConfig('LANGUAGE', \"zh_TW\")"
+                        )
+                        
                     if file == 'gui.py':
                         old_code = 'if not self.TASK_SPECIFIC_CONFIG.get():\n                self.overall_combo.set'
                         new_code = 'if hasattr(self, "overall_combo") and not self.TASK_SPECIFIC_CONFIG.get():\n                self.overall_combo.set'
@@ -395,7 +401,6 @@ def compile_po_to_mo(po_path, mo_path):
 
 def main():
     print("=== 開始一鍵繁體翻譯與語系更新 ===")
-    ensure_config_zh_tw()
     generate_zh_tw_po()
     
     zh_tw_po = os.path.join('locale', 'zh_TW', 'LC_MESSAGES', 'messages.po')

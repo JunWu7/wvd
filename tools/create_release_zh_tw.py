@@ -79,6 +79,9 @@ def make_release_zip(version):
     with zipfile.ZipFile(zip_filepath, 'w', zipfile.ZIP_DEFLATED) as zipf:
         for root, dirs, files in os.walk(out_dir):
             for file in files:
+                if file.lower() == 'config.json':
+                    print(f"[+] 發布包自動過濾剔除個人設定檔: {file}")
+                    continue
                 abs_path = os.path.join(root, file)
                 if not os.path.exists(abs_path):
                     continue
