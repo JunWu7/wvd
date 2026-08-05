@@ -100,10 +100,21 @@ def generate_release_json(version, zip_filename, md5_value, github_user="JunWu7"
         "md5": md5_value
     }
     
-    # 同時寫入 app_release/release.json 與 根目錄 release.json
+    # 同時寫入 app_release/release.json 與 docs/release.json
+    docs_dir = "docs"
+    os.makedirs(docs_dir, exist_ok=True)
+
+    # 若根目錄有舊的 release.json，則刪除清理
+    if os.path.exists("release.json"):
+        try:
+            os.remove("release.json")
+            print("[+] 已自動清理舊根目錄 release.json")
+        except Exception:
+            pass
+
     paths = [
         os.path.join("app_release", "release.json"),
-        "release.json"
+        os.path.join(docs_dir, "release.json")
     ]
     
     for p in paths:
