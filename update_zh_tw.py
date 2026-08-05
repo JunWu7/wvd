@@ -85,6 +85,15 @@ def prepare_patched_src():
                     if file == 'main.py':
                         tw_code_content = tw_code_content.replace('OWNER = "arnold2957"', 'OWNER = "JunWu7"')
                         
+                    if file == 'gui.py':
+                        old_code = 'if not self.TASK_SPECIFIC_CONFIG.get():\n                self.overall_combo.set'
+                        new_code = 'if hasattr(self, "overall_combo") and not self.TASK_SPECIFIC_CONFIG.get():\n                self.overall_combo.set'
+                        tw_code_content = tw_code_content.replace(old_code, new_code)
+                        
+                        old_code2 = 'else:\n                self.overall_combo.set(self.TASK_POINT_STRATEGY[\'overall_strategy\'])'
+                        new_code2 = 'elif hasattr(self, "overall_combo"):\n                self.overall_combo.set(self.TASK_POINT_STRATEGY[\'overall_strategy\'])'
+                        tw_code_content = tw_code_content.replace(old_code2, new_code2)
+                        
                     if file == 'auto_updater.py':
                         tw_code_content = tw_code_content.replace(
                             'with open("_update_restart.bat", "w") as f:',
