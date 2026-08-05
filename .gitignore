@@ -3,6 +3,8 @@
 build/
 dist/
 output/
+release_zip/
+
 
 
 # 临时文件

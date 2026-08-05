@@ -35,7 +35,7 @@ def ensure_config_zh_tw():
     print(f"[+] 已確保 {config_file} 設定為 GENERAL.LANGUAGE = 'zh_TW'")
 
 def prepare_patched_src():
-    """ 複製 src/ 到 build/src_patched/ 並對 .py 檔案內的簡體中文進行 OpenCC 轉換 """
+    """ 複製 src/ 到 build/src_patched/ 並對 .py 檔案內的簡體中文進行 OpenCC 轉換，同時修正更新源與重啟腳本編碼 """
     src_dir = 'src'
     build_dir = os.path.join('build', 'src_patched')
     
@@ -64,6 +64,45 @@ def prepare_patched_src():
                     
                     tw_code_content = s2t(code_content)
                     
+                    if file == 'main.py':
+                        tw_code_content = tw_code_content.replace('OWNER = "arnold2957"', 'OWNER = "JunWu7"')
+                        
+                    if file == 'auto_updater.py':
+                        old_bat_script = """            script = f\"\"\"@echo off
+REM 等待原始程序退出
+timeout /t 2 /nobreak >nul
+
+REM 复制解压后的文件到当前目录
+xcopy /E /Y /Q "{unpack_dir}\\\\*" "."
+
+REM 启动新版本程序
+start "" "{os.path.basename(sys.argv[0])}"
+
+REM 清理临时文件
+rmdir /S /Q "__update_temp__"
+
+REM 删除自身
+del "%~f0"
+    \"\"\""""
+                        new_bat_script = """            script = f\"\"\"@echo off
+chcp 65001 >nul
+REM Waiting for main process exit
+timeout /t 2 /nobreak >nul
+
+REM Copy unpacked files
+xcopy /E /Y /Q "{unpack_dir}\\\\*" "."
+
+REM Restart main executable
+start "" "{os.path.basename(sys.argv[0])}"
+
+REM Clean temporary update folder
+rmdir /S /Q "__update_temp__"
+
+REM Delete restart script
+del "%~f0"
+    \"\"\""""
+                        tw_code_content = tw_code_content.replace(old_bat_script, new_bat_script)
+
                     with open(dst_file, 'w', encoding='utf-8') as f:
                         f.write(tw_code_content)
                 except Exception as e:
@@ -72,7 +111,7 @@ def prepare_patched_src():
             else:
                 shutil.copy2(src_file, dst_file)
                 
-    print(f"[+] 已成功在 build/ 建立修補後的臨時源碼目錄: {build_dir}")
+    print(f"[+] 已成功在 build/ 建立修補與注入更新源的臨時源碼目錄: {build_dir}")
     return True
 
 def patch_output_quest_json():
