@@ -2,20 +2,43 @@ import os
 import sys
 import json
 import hashlib
+import shutil
 import zipfile
 
 def get_current_version():
-    config_file = os.path.join('output', 'wvd', 'config.json')
-    if not os.path.exists(config_file):
-        config_file = 'config.json'
-    
-    if os.path.exists(config_file):
-        try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                return data.get('GENERAL', {}).get('LAST_VERSION', '2.4.12')
-        except Exception:
-            pass
+    # 1. 優先從 src/main.py 或 build/src_patched/main.py 自動讀取原作者定義的 __version__
+    main_files = [
+        os.path.join('build', 'src_patched', 'main.py'),
+        os.path.join('src', 'main.py')
+    ]
+    for main_file in main_files:
+        if os.path.exists(main_file):
+            try:
+                with open(main_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        if line.strip().startswith('__version__'):
+                            ver = line.split('=')[1].strip().strip("'\"")
+                            if ver:
+                                return ver
+            except Exception:
+                pass
+
+    # 2. 備份：從打包產物的 config.json 讀取
+    config_files = [
+        os.path.join('app_build', 'wvd', 'config.json'),
+        os.path.join('output', 'wvd', 'config.json'),
+        'config.json'
+    ]
+    for config_file in config_files:
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    ver = data.get('GENERAL', {}).get('LAST_VERSION')
+                    if ver:
+                        return ver
+            except Exception:
+                pass
     return '2.4.12'
 
 def compute_md5(file_path):
@@ -26,12 +49,19 @@ def compute_md5(file_path):
     return hash_md5.hexdigest()
 
 def make_release_zip(version):
-    out_dir = os.path.join('output', 'wvd')
+    out_dir = os.path.join('app_build', 'wvd')
     if not os.path.exists(out_dir):
-        print(f"[-] 錯誤：找不到打包成品目錄 {out_dir}，請先執行打包步驟！")
+        out_dir = os.path.join('output', 'wvd')
+    
+    if not os.path.exists(out_dir):
+        print(f"[-] 錯誤：找不到打包成品目錄 (app_build/wvd)，請先執行打包步驟！")
         return None, None
     
-    release_dir = 'release_zip'
+    release_dir = 'app_release'
+    if os.path.exists(release_dir):
+        print(f"[資訊] 正在自動清空舊的發布目錄 {release_dir}...")
+        shutil.rmtree(release_dir, ignore_errors=True)
+        
     os.makedirs(release_dir, exist_ok=True)
     
     zip_filename = f"wvd_zh_TW_v{version}.zip"
@@ -42,8 +72,13 @@ def make_release_zip(version):
         for root, dirs, files in os.walk(out_dir):
             for file in files:
                 abs_path = os.path.join(root, file)
+                if not os.path.exists(abs_path):
+                    continue
                 rel_path = os.path.relpath(abs_path, out_dir)
-                zipf.write(abs_path, rel_path)
+                try:
+                    zipf.write(abs_path, rel_path)
+                except FileNotFoundError:
+                    pass
                 
     md5_value = compute_md5(zip_filepath)
     print(f"[+] 壓縮完成！MD5 校驗碼: {md5_value}")
@@ -57,11 +92,17 @@ def generate_release_json(version, zip_filename, md5_value, github_user="JunWu7"
         "md5": md5_value
     }
     
-    release_json_path = "release.json"
-    with open(release_json_path, 'w', encoding='utf-8') as f:
-        json.dump(release_data, f, ensure_ascii=False, indent=4)
+    # 同時寫入 app_release/release.json 與 根目錄 release.json
+    paths = [
+        os.path.join("app_release", "release.json"),
+        "release.json"
+    ]
+    
+    for p in paths:
+        with open(p, 'w', encoding='utf-8') as f:
+            json.dump(release_data, f, ensure_ascii=False, indent=4)
+        print(f"[+] 已成功生成發布檔: {p}")
         
-    print(f"[+] 已成功生成專屬發布檔: {release_json_path}")
     print("=" * 50)
     print(json.dumps(release_data, ensure_ascii=False, indent=4))
     print("=" * 50)
@@ -81,3 +122,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

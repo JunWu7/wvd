@@ -2,10 +2,10 @@
 chcp 65001 >nul
 setlocal
 
-python check_pipeline.py 2
+python sync_app_current.py
 if errorlevel 1 (
     echo.
-    echo [錯誤] 步驟 2 執行失敗！
+    echo [錯誤] 同步至 app_current 失敗！請檢查 app_current\wvd\wvd.exe 是否正被開啟使用中。
     echo ===================================================
     if not "%~1"=="--no-pause" pause
     exit /b 1

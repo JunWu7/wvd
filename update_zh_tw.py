@@ -16,23 +16,40 @@ except ImportError:
         return text
 
 def ensure_config_zh_tw():
-    config_file = 'config.json'
-    data = {}
-    if os.path.exists(config_file):
+    main_file = os.path.join('src', 'main.py')
+    ver_str = '2.4.13'
+    if os.path.exists(main_file):
         try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            with open(main_file, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    if line.strip().startswith('__version__'):
+                        ver_str = line.split('=')[1].strip().strip("'\"")
+                        break
         except Exception:
+            pass
+
+    possible_files = [
+        os.path.join('app_build', 'wvd', 'config.json'),
+        os.path.join('output', 'wvd', 'config.json')
+    ]
+    for config_file in possible_files:
+        dst_dir = os.path.dirname(config_file)
+        if not os.path.exists(dst_dir):
+            continue
+        try:
             data = {}
-    
-    if 'GENERAL' not in data or not isinstance(data['GENERAL'], dict):
-        data['GENERAL'] = {}
-    
-    data['GENERAL']['LANGUAGE'] = 'zh_TW'
-    
-    with open(config_file, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-    print(f"[+] 已確保 {config_file} 設定為 GENERAL.LANGUAGE = 'zh_TW'")
+            if os.path.exists(config_file):
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            if 'GENERAL' not in data or not isinstance(data['GENERAL'], dict):
+                data['GENERAL'] = {}
+            data['GENERAL']['LANGUAGE'] = 'zh_TW'
+            data['GENERAL']['LAST_VERSION'] = ver_str
+            with open(config_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+            print(f"[+] 已確保 {config_file} 設定為 GENERAL.LANGUAGE = 'zh_TW', LAST_VERSION = '{ver_str}'")
+        except Exception as e:
+            print(f"[-] 設定 {config_file} 失敗: {e}")
 
 def prepare_patched_src():
     """ 複製 src/ 到 build/src_patched/ 並對 .py 檔案內的簡體中文進行 OpenCC 轉換，同時修正更新源與重啟腳本編碼 """
@@ -115,8 +132,10 @@ del "%~f0"
     return True
 
 def patch_output_quest_json():
-    """ 僅修補 output 中的 quest.json 原地欄位，避免產生 FarmQuest 白名單警告 """
+    """ 僅修補 app_build 與 output 中的 quest.json 原地欄位，避免產生 FarmQuest 白名單警告 """
     possible_paths = [
+        os.path.join('app_build', 'wvd', '_internal', 'resources', 'quest', 'quest.json'),
+        os.path.join('app_build', 'wvd', 'resources', 'quest', 'quest.json'),
         os.path.join('output', 'wvd', '_internal', 'resources', 'quest', 'quest.json'),
         os.path.join('output', 'wvd', 'resources', 'quest', 'quest.json')
     ]
@@ -168,6 +187,8 @@ def patch_output_changes_log():
         tw_content = s2t(content)
         
         possible_paths = [
+            os.path.join('app_build', 'wvd', 'CHANGES_LOG.md'),
+            os.path.join('app_build', 'wvd', '_internal', 'CHANGES_LOG.md'),
             os.path.join('output', 'wvd', 'CHANGES_LOG.md'),
             os.path.join('output', 'wvd', '_internal', 'CHANGES_LOG.md')
         ]

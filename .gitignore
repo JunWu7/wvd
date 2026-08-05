@@ -4,6 +4,9 @@ build/
 dist/
 output/
 release_zip/
+app_current/
+app_build/
+app_release/
 
 
 

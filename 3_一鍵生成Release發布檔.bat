@@ -2,21 +2,14 @@
 chcp 65001 >nul
 setlocal
 
-echo ===================================================
-echo [3/3] •ø¶b•Õ¶® Release µo•¨ ZIP ¿£¡Y¿…ªP release.json...
-echo ===================================================
-
-python create_release_zh_tw.py
+python check_pipeline.py 3
 if errorlevel 1 (
     echo.
-    echo [ø˘ª~] •Õ¶® Release µo•¨¿…•¢±—°IΩ–¿À¨d output/wvd ¨Oß_¶s¶b°C
+    echo [ÈåØË™§] Ê≠•È©ü 3 Âü∑Ë°åÂ§±ÊïóÔºÅ
     echo ===================================================
-    pause
+    if not "%~1"=="--no-pause" pause
     exit /b 1
 )
 
-echo.
-echo [¶®•\] Release µo•¨¿…§w•Õ¶®ßπ≤¶°I
-echo ZIP ªP release.json §w∑«≥∆¥N∫¸°A•i™Ω±µ§W∂«¶‹ GitHub Release/Pages°C
-echo ===================================================
+if not "%~1"=="--no-pause" pause
 endlocal

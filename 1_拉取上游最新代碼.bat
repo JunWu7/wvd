@@ -2,29 +2,14 @@
 chcp 65001 >nul
 setlocal
 
-echo ===================================================
-echo [1/3] ¥¿¦b©Ô¨ú upstream ¤W´å³Ì·s¥N½X...
-echo ===================================================
-
-git fetch upstream
+python check_pipeline.py 1
 if errorlevel 1 (
     echo.
-    echo [¿ù»~] §ì¨ú upstream ¤W´å§ó·s¥¢±Ñ¡I½ĞÀË¬dºô¸ô³s½u©Î Git ³]©w¡C
+    echo [éŒ¯èª¤] æ­¥é©Ÿ 1 åŸ·è¡Œå¤±æ•—ï¼
     echo ===================================================
-    pause
+    if not "%~1"=="--no-pause" pause
     exit /b 1
 )
 
-git merge upstream/master
-if errorlevel 1 (
-    echo.
-    echo [¿ù»~] ¦X¨Ö upstream/master ®Éµo¥Í½Ä¬ğ (Conflict)¡I½Ğ¥ı¤â°Ê¸Ñ¨M½Ä¬ğ¡C
-    echo ===================================================
-    pause
-    exit /b 1
-)
-
-echo.
-echo [¦¨¥\] ¤w¦¨¥\©Ô¨ú¨Ã¦X¨Ö¤W´å³Ì·s¥N½X¡I
-echo ===================================================
+if not "%~1"=="--no-pause" pause
 endlocal
