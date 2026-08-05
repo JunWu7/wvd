@@ -46,9 +46,9 @@ if errorlevel 1 (
 :: 生成时间戳（格式：年月日时分）
 for /f %%i in ('powershell -Command "Get-Date -Format 'yyyyMMddHHmm'"') do set timestamp=%%i
 
-:: 打包并添加时间戳到文件名
-:: pyinstaller --onefile --noconsole --add-data "resources;resources/" src/main.py -n wvd
-pyinstaller --onedir --add-data "resources;resources/" src/main.py -n wvd
+:: 打包並添加時間戳到檔名
+:: pyinstaller --onefile --noconsole --add-data "resources;resources/" --add-data "locale;locale/" src/main.py -n wvd
+pyinstaller --onedir --add-data "resources;resources/" --add-data "locale;locale/" src/main.py -n wvd
 
 if errorlevel 1 (
     echo Failed to run pyinstaller.
