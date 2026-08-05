@@ -1586,9 +1586,28 @@ def Factory():
                 Press([pos[0]-15+random.randint(0,30),pos[1]+150+random.randint(0,30)])
                 logger.info(_("释放了位于\"{a}\"的单体技能, 技能等级为{b}. 选择next作为敌方目标.".format(a=skillPos, b=skilllvl)))
             else:
-                for t in range(24):
-                    Press([75+random.random()*827,296+random.random()*600])
-                    Sleep(0.05)
+                # 尝试点击next
+                pos = CheckIf(ScreenShot(),"next",[[1,291,898,600]])
+                Press([pos[0],pos[1]+40])
+
+                # 尝试随机点击
+                x0, y0 = 75, 296
+                width, height = 827, 600
+
+                cols = 4
+                rows = 3
+                cell_w = width / cols
+                cell_h = height / rows
+
+                for row in range(rows):
+                    for col in range(cols):
+                        left = x0 + col * cell_w
+                        top = y0 + row * cell_h
+                        x = left + random.random() * cell_w
+                        y = top + random.random() * cell_h
+                        Press([x, y])
+                        Sleep(0.05)
+
                 logger.info(_("释放了位于\"{a}\"的单体技能, 技能等级为{b}. 随机选择敌方目标.".format(a=skillPos, b=skilllvl)))
                 Sleep(2)
 
