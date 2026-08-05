@@ -1,13 +1,14 @@
 @echo off
 chcp 65001 >nul
 setlocal
+cd /d "%~dp0"
 
 echo ===================================================
 echo [★] 開始全自動一鍵流程 (智慧檢查版本: 自動跳過已最新步驟)
 echo ===================================================
 echo.
 
-python check_pipeline.py
+python tools\check_pipeline.py
 if errorlevel 1 (
     echo.
     echo [中斷] 全自動流程失敗。
