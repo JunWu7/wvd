@@ -3,6 +3,7 @@ import sys
 import json
 import struct
 import shutil
+import re
 
 try:
     import opencc
@@ -85,23 +86,15 @@ def prepare_patched_src():
                         tw_code_content = tw_code_content.replace('OWNER = "arnold2957"', 'OWNER = "JunWu7"')
                         
                     if file == 'auto_updater.py':
-                        old_bat_script = """            script = f\"\"\"@echo off
-REM 等待原始程序退出
-timeout /t 2 /nobreak >nul
-
-REM 复制解压后的文件到当前目录
-xcopy /E /Y /Q "{unpack_dir}\\\\*" "."
-
-REM 启动新版本程序
-start "" "{os.path.basename(sys.argv[0])}"
-
-REM 清理临时文件
-rmdir /S /Q "__update_temp__"
-
-REM 删除自身
-del "%~f0"
-    \"\"\""""
-                        new_bat_script = """            script = f\"\"\"@echo off
+                        tw_code_content = tw_code_content.replace(
+                            'with open("_update_restart.bat", "w") as f:',
+                            'with open("_update_restart.bat", "w", encoding="utf-8") as f:'
+                        )
+                        tw_code_content = tw_code_content.replace(
+                            'with open("_update_restart.sh", "w") as f:',
+                            'with open("_update_restart.sh", "w", encoding="utf-8") as f:'
+                        )
+                        new_script_block = '''script = f"""@echo off
 chcp 65001 >nul
 REM Waiting for main process exit
 timeout /t 2 /nobreak >nul
@@ -117,8 +110,13 @@ rmdir /S /Q "__update_temp__"
 
 REM Delete restart script
 del "%~f0"
-    \"\"\""""
-                        tw_code_content = tw_code_content.replace(old_bat_script, new_bat_script)
+    """'''
+                        tw_code_content, _ = re.subn(
+                            r'script = f"""@echo off.*?del "%~f0"\s*"""',
+                            new_script_block,
+                            tw_code_content,
+                            flags=re.DOTALL
+                        )
 
                     with open(dst_file, 'w', encoding='utf-8') as f:
                         f.write(tw_code_content)
