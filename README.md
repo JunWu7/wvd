@@ -47,6 +47,7 @@ wvdas可以再檢測到"再起之火"耗盡後, 立刻將任務變更為"找公�
 - 腳本左上角的"模擬器路徑"為:
 	 - MuMu12: Netease\MuMu Player 12\shell\MuMuPlayer.exe
 	 - MuMuX: Netease\MuMu\nx_device\12.0\shell\MuMuNxDevice.exe
+	 - MuMu15: Netease\MuMu\nx_device\15.0\shell\MuMuNxDevice.exe
 - 埠號預設為16384. 很罕見的情況下, 可能為5555. 如果兩者皆非, 你可從多開管理器裡找到具體的模擬器埠.
 - 關閉**網路橋接模式**.
 

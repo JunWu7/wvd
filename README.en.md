@@ -34,6 +34,7 @@ Maximizes AFK efficiency~
 - The "Emulator Path" in the top-left corner of the script is:
      - MuMu12: Netease\MuMu Player 12\shell\MuMuPlayer.exe
      - MuMuX: Netease\MuMu\nx_device\12.0\shell\MuMuNxDevice.exe
+     - MuMu15: Netease\MuMu\nx_device\15.0\shell\MuMuNxDevice.exe
 - The port number is 5555 or 16384. If neither works, you can find the ADB port number in the Multi-Drive Manager.
 
 ### Overall Game Settings

@@ -112,6 +112,7 @@ class RuntimeContext:
     NEED_RECOVER_WHEN_BEGINNING = True
     TASK_STEP_INDEX = 0
     _LAST_BAGCLEAR = 0
+    _SKIP_SCREENSHOT_WARNING = False # 截图返回是否包含错误代码.
 class FarmQuest:
     _TARGETINFOLIST = None
     _EOT = None
@@ -584,63 +585,93 @@ def Factory():
     def Sleep(t=1):
         time.sleep(t)
     def ScreenShot():
-        t = time.time()
+        if "wizardry" not in DeviceShell("dumpsys window | grep mCurrentFocus"):
+            logger.error("游戏未启动!")
+            restartGame(skip_screenshot=True)
 
-        
+        nonlocal runtimeContext
+
+        t = time.time()
+        class AppKeepAliveError(Exception):
+            pass
+
         while True:
             try:
-                # 获取设备序列号，用于构造 adb 命令
-                serial = setting._ADBDEVICE.serial 
+                serial = setting._ADBDEVICE.serial
 
+                # 1. 根据运行情况选择指令
+                if not runtimeContext._SKIP_SCREENSHOT_WARNING:
+                    cmd = "screencap"
+                else:
+                    cmd = "screencap 2>/dev/null"
                 process_result = subprocess.run(
-                    [GetADBPathFromEmuPath(setting.EMU_PATH), "-s", serial, "exec-out", "screencap"],
-                    capture_output=True, # 捕获输出
-                    timeout=5            # 设置超时
+                    [GetADBPathFromEmuPath(setting.EMU_PATH), "-s", serial, "exec-out",
+                    cmd],
+                    capture_output=True,
+                    timeout=5
                 )
-                
+
                 if process_result.stderr:
-                    logger.error(_("截图命令报错: {a}".format(a=process_result.stderr.decode('utf-8', errors='ignore'))))
+                    logger.error(_("截图命令报错: {a}".format(
+                        a=process_result.stderr.decode('utf-8', errors='ignore'))))
                     raise RuntimeError(_("截图命令报错"))
 
                 raw_data = process_result.stdout
+
                 
-                # 解析头部信息 (前12个字节)
                 if len(raw_data) < 12:
                     logger.error(_("截图数据不足12字节(无头信息)"))
                     raise RuntimeError(_("截图数据异常"))
-                
-                # struct.unpack 解析二进制: "<"小端序, "I"无符号整型(4字节)
-                # 前三个整数分别是: 宽度, 高度, 像素格式
+
+                    # 尝试解析宽高
                 w, h, fmt = struct.unpack("<III", raw_data[:12])
+
+                # 2. 合理性校验（若合法则跳出循环）
+                if not (0 < w <= 16384 and 0 < h <= 16384):
+                    # 特殊警告：开启应用保活导致的多显示器提示
+                    if raw_data.startswith(
+                        b'[Warning] Multiple displays were found, but no display id was specified! '
+                        b'Defaulting to the first display found, however this default is not guaranteed '
+                        b'to be consistent across captures. A display id should be specified.\n'
+                    ):
+                        raise AppKeepAliveError("你开启了应用保活, 请关闭.")
+
+                    if not runtimeContext._SKIP_SCREENSHOT_WARNING:
+                        logger.error(f"无法识别的截屏数据，头部内容: {raw_data[:400]}")
+                        logger.error(f"将在之后截图时跳过所有警告信息.")
+                        runtimeContext._SKIP_SCREENSHOT_WARNING = True
+                        return ScreenShot()
+                    else:
+                        logger.error(f"再次收到非法数据，头部内容: {raw_data[:400]}")
+                        raise RuntimeError("截图数据异常，无法修复")
+
+                # 3. 后续原始处理
                 expected_pixels = w * h * 4
                 pixels_data = raw_data[12:]
 
                 if len(pixels_data) == expected_pixels:
                     pass
                 elif len(pixels_data) > expected_pixels:
-                    # 通常是多了4个字节的结束符，直接切掉尾部多余的
                     pixels_data = pixels_data[:expected_pixels]
                 else:
-                    logger.error(_("数据长度校验失败: 头部声明 {a}x{b}, 实际收到 {c}, 期望 {d}".format(a=w,b=h,c=len(pixels_data), d=expected_pixels)))
+                    logger.error(_("数据长度校验失败: 头部声明 {a}x{b}x4={d}, 实际收到 {c}.").format(
+                        a=w, b=h, c=len(pixels_data), d=expected_pixels))
                     raise RuntimeError(_("截图数据不完整"))
 
                 image = np.frombuffer(pixels_data, dtype=np.uint8)
                 image = image.reshape((h, w, 4))
                 image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
 
-                # 注意：现在的 image.shape 已经是 (h, w, 3)
                 current_h, current_w = image.shape[:2]
-               
                 if (current_h, current_w) != (1600, 900):
                     if (current_h, current_w) == (900, 1600):
-                        logger.error(_("截图尺寸错误: 当前{a}, 检测为横屏.".format(a=image.shape)))  
-                        # 不能截图, 截图就爆栈了.
-                        restartGame(skip_screenshot=True)
-                    else:
-                        logger.error(_("截图尺寸错误: 期望(1600,900), 实际({a},{b}).".format(a=current_h,b=current_w)))
-                        raise RuntimeError(_("分辨率异常: {a}x{b}".format(a=current_w, b=current_h)))
+                        logger.debug(_("截图尺寸错误: 当前{a}, 检测为横屏.".format(a=image.shape)))
+                        image = image.transpose(1, 0, 2)
 
-                # logger.info(f"{time.time()-t}")
+                    else:
+                        logger.error(_("截图尺寸错误: 期望(1600,900), 实际({a},{b}).".format(
+                            a=current_h, b=current_w)))
+                        raise RuntimeError(_("分辨率异常: {a}x{b}".format(a=current_w, b=current_h)))
 
                 return image
 
@@ -648,13 +679,19 @@ def Factory():
                 logger.warning(_("截图超时 (Subprocess)"))
                 logger.info(_("ADB操作失败, 尝试重启ADB或模拟器程序..."))
                 ResetDevice(force_restart_adb=True)
-                
+
             except Exception as e:
                 logger.debug(_("截图发生异常: {a}".format(a=e)))
                 if isinstance(e, (AttributeError, RuntimeError, ConnectionResetError, cv2.error)):
                     logger.info(_("ADB操作失败/数据错误, 尝试重启ADB或模拟器程序..."))
                     ResetDevice()
-                time.sleep(1)
+                if isinstance(e, (AppKeepAliveError)):
+                    logger.info(_("你开启了应用保活, 请关闭.\n请在\"设备设置-其他-应用运行\"中关闭."))
+                    setting._FORCESTOPING.set()
+                    return
+
+                Sleep(1)
+
     def _check(screenImage, template, roi = None, outputMatchResult = False):
         screenshot = screenImage.copy()
         pos = None
@@ -975,8 +1012,9 @@ def Factory():
         Sleep(10)
         logs = DeviceShell("logcat -d | grep -i \"unable to initialize.*graphics api\"")
         if logs.strip():
-            logger.error(_("检测到崩溃日志, 关闭模拟器重启.{a}".format(a=logs)))
-            restartGame(skip_screenshot = False, force_restart_EMU = True)
+            logger.error(_("检测到崩溃日志, 暂时不重启模拟器.{a}".format(a=logs)))
+            # restartGame(skip_screenshot = False, force_restart_EMU = True)
+
         raise RestartSignal()
     class RestartSignal(Exception):
         pass
@@ -3117,95 +3155,6 @@ def Factory():
                     if setting._FORCESTOPING.is_set():
                         break
                     logger.info(_("完成了{a}次旅店休息.\n总计用时{c:.2f}s.\n平均用时{d:.2f}s.").format(a=counter+1, c=time.time()-t, d=(time.time()-t)/(counter+1)),extra={"summary": True})
-            case "retard_tapjoy":
-                def split_image(img):
-                    img_analyze = {}
-                    for i in range(5):
-                        for j in range(7):
-                            cropped = img[(274+114*j):(368+114*j),(174+114*i):(268+114*i)]
-                            img_analyze[i*10+j] = cropped
-                    return img_analyze
-                def smallgame_check(a,b):
-                    result = cv2.matchTemplate(a, b, cv2.TM_CCOEFF_NORMED)
-                    underscore, max_val, underscore, max_loc = cv2.minMaxLoc(result)
-                    return max_val
-                def shoot(i):
-                    Press([221+114*i,321])
-                ############
-                screen_queue = []
-                empty_img = LoadTemplateImage('smallgame/smallgame_empty')
-                merge_counter = 0
-                start_time = time.time()
-                while 1:
-                    Sleep(1)
-                    img = ScreenShot()
-                    if Press(CheckIf(img,"smallgame/nothanks")):
-                        Sleep(1)
-                        continue
-                    if Press(CheckIf(img,"smallgame/nothanks_y")):
-                        Sleep(1)
-                        continue
-                    if Press(CheckIf(img,"smallgame/nothanks_s")):
-                        Sleep(1)
-                        continue
-                    if Press(CheckIf(img,"smallgame/yes")):
-                        Sleep(1)
-                        continue
-                    if Press(CheckIf(img,"smallgame/play")):
-                        Sleep(1)
-                        continue
-                    screen_queue, if_frozen = GameFrozenCheck(screen_queue,img[274:(274+114*7),174:(174+114*5)],3,0.002)
-                    if if_frozen:
-                        if smallgame_check(img[1150-50:1150+50,800-50:800+50],empty_img[1150-50:1150+50,800-50:800+50]) > 0.9:
-                            Press([800,1150])
-                            Sleep(2)
-                            Press([315,1037])
-                            Sleep(0.5)
-                            shoot(0)
-                            continue
-                    img_analyze = split_image(img)
-
-                    empty_img = LoadTemplateImage('smallgame/smallgame_empty')
-                    img_analyze_empty = split_image(empty_img)
-
-                    depth = [7,7,7,7,7]
-                    for k in img_analyze.keys():
-                        r = smallgame_check(img_analyze[k],img_analyze_empty[k])
-                        if r>0.98:
-                            if k%10 < depth[k//10]:
-                                depth[k//10] = k % 10
-                    
-                    # logger.info(depth)
-
-                    next = img[1178-40:1178+40,450-40:450+40,]
-
-                    send = False
-                    for i in range(5):
-                        if depth[i]!=0:
-                            k = i*10+depth[i]-1
-                            if k in img_analyze:
-                                r = smallgame_check(img_analyze[k],next)
-                                if r >0.95:
-                                    send = True
-                                    break
-                    if send:
-                        logger.info(f"合成{i}")
-                        shoot(i)
-                        merge_counter+=1
-                        cost_time = time.time()-start_time
-                        if merge_counter %20 ==0:
-                            logger.info(f"完成最多{merge_counter}次合并, 用时{cost_time:.2f}s. 平均{cost_time/merge_counter:.2f}秒一次合并.", extra={"summary": True})
-                        continue
-                    for i in range(5):
-                        if depth[i]==0:
-                            logger.info(f"空白{i}")
-                            shoot(i)
-                            continue
-                    
-                    mindeep = depth.index(min(depth))
-                    logger.info(f"摆烂{mindeep}")
-                    shoot(mindeep)
-                    continue
             case "fortress-B8F_trap":
                 while 1:
                     if setting._FORCESTOPING.is_set():
@@ -3314,8 +3263,9 @@ def Factory():
                         RestartableSequenceExecution(
                             lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("OpenWorldMap",[[1,1],"leaveDung","donothing"],1))
                         )
-
-                        TeleportFromDungeonToCity(*quest._RTT)
+                        RestartableSequenceExecution(
+                            lambda: TeleportFromDungeonToCity(*quest._RTT)
+                        )
 
                         reunionParty("FFXI/FFXIStone")
                         resetBag = False
