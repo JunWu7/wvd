@@ -17,7 +17,7 @@ echo.
 echo [資訊] 正在為您開始打包指定版本 v%TARGET_VER%...
 echo.
 
-python build_custom_version.py %TARGET_VER%
+python tools\build_custom_version.py %TARGET_VER%
 if errorlevel 1 (
     echo.
     echo [錯誤] 特定版本打包失敗！

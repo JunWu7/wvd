@@ -18,7 +18,7 @@ def build_custom_version(target_version="2.4.12"):
     print("===================================================")
 
     # 1. 執行 update_zh_tw.py 建立 build/src_patched
-    res = subprocess.run([sys.executable, 'update_zh_tw.py'])
+    res = subprocess.run([sys.executable, os.path.join('tools', 'update_zh_tw.py')])
     if res.returncode != 0:
         print("[錯誤] update_zh_tw.py 執行失敗！")
         return False
@@ -63,7 +63,7 @@ def build_custom_version(target_version="2.4.12"):
         return False
 
     # 5. 再次執行 update_zh_tw.py 對 app_build 原地修補 quest.json 與 CHANGES_LOG
-    subprocess.run([sys.executable, 'update_zh_tw.py'])
+    subprocess.run([sys.executable, os.path.join('tools', 'update_zh_tw.py')])
     shutil.rmtree('build', ignore_errors=True)
 
     print("===================================================")
