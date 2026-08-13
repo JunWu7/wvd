@@ -586,6 +586,7 @@ def Factory():
     def ScreenShot():
         if "wizardry" not in DeviceShell("dumpsys window | grep mCurrentFocus"):
             logger.error("游戏未启动!")
+        
             restartGame(skip_screenshot=True)
 
         nonlocal runtimeContext
@@ -688,6 +689,8 @@ def Factory():
                     logger.info(_("你开启了应用保活, 请关闭.\n请在\"设备设置-其他-应用运行\"中关闭."))
                     setting._FORCESTOPING.set()
                     return
+                if isinstance(e,RestartSignal):
+                    pass # TODO 可能是错的 先这么写
 
                 Sleep(1)
 
@@ -1618,7 +1621,7 @@ def Factory():
             else:
                 repeat = 2
                 if pos:= CheckIf(scn,"next",[[1,291,898,600]]):
-                    Press([pos[0],pos[1]+50])
+                    Press([pos[0]+15,pos[1]+50])
                     logger.info(_("释放了位于\"{a}\"的单体技能, 技能等级为{b}. 选择next作为敌方目标.".format(a=skillPos, b=skilllvl)))
                     repeat = 1
 
@@ -3189,23 +3192,22 @@ def Factory():
                     RestartableSequenceExecution(
                         lambda: StateEoT()
                         )
+                    Sleep(2)
 
                     logger.info("前往矿点...")
                     RestartableSequenceExecution(
-                        lambda: FindCoordsOrElseExecuteFallbackAndWait("theRouteToTheDestinationCannotBeFound",[[1,1],"mark_auto","donothing"],0.5)
+                        lambda: FindCoordsOrElseExecuteFallbackAndWait(["theRouteToTheDestinationCannotBeFound","openworldmap"],[[1,1],"mark_auto","donothing"],0.5)
                     )
-
-                    while 1:
-                        if setting._FORCESTOPING.is_set():
-                            break
-                        scn = ScreenShot()
-                        Press([450,600])
-
+                    scn = ScreenShot()
+                    if CheckIf(scn,"openworldmap") or (not CheckIf(scn,"theRouteToTheDestinationCannotBeFound")):
+                        logger.info("看起来遇到了一些错误, 我们重新开始...")
+                        continue
+                    
+                    def CheckState(scn):
                         if TryPressRetry(scn):
                             Sleep(1)
-                            continue
-
-                        if CheckIf(scn, "FFXI/receive",[[4,664,890,283]]):
+                            return "retry"
+                        elif CheckIf(scn, "FFXI/receive",[[4,664,890,283]]):
                             vals = {
                                 "特级矿石": CheckHow(scn,"FFXI/org_fine", [[4,664,890,283]]),
                                 "上级矿石": CheckHow(scn,"FFXI/org_high", [[4,664,890,283]]),
@@ -3224,28 +3226,59 @@ def Factory():
                                 logger.info(f"获得了{best}!")
                                 counter[best]+=1
                             else:
-                                logger.info(f"遇到了一些状况之外的情况.")
                                 SaveImage(scn)
-
                                 logger.info(f"某些无法判断的东西...")
                                 counter["某些无法判断的东西"]+=1
+                            return "receive"
+                        elif CheckIf(scn, "FFXI/nothingToDig",[[320,667,423,474]]) or CheckIf(scn, "FFXI/nothingToDig2",[[320,667,423,474]]):
+                            return "end"
+                        elif CheckIf(scn,"FFXI/needpickaxe",[[4,664,890,283]]):
+                            return "pickaxe"
 
-                        if CheckIf(scn, "FFXI/nothingToDig",[[320,667,423,474]]) or CheckIf(scn, "FFXI/nothingToDig2",[[320,667,423,474]]):
-                            logger.info("没东西了, 撤退。")
+                        return "none"
+
+                    while 1:
+                        if setting._FORCESTOPING.is_set():
+                            break
+                        
+                        result = CheckState(ScreenShot())
+                        if ("retry" in result) or ("receive" in result):
+                            pass
+                        elif "end" in result:
                             RestartableSequenceExecution(
                                 lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("ReturnText",[[1,1],"leaveDung","donothing"],1))
                             )
+                            logger.info(f"点击前截图判断为无矿可挖, 退出副本.")
                             break
-
-                        if CheckIf(scn,"FFXI/needpickaxe",[[4,664,890,283]]):
+                        elif "pickaxe" in result:
                             resetBag = True
-                            logger.info("镐子用完了，回去拿。")
                             RestartableSequenceExecution(
                                 lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("ReturnText",[[1,1],"leaveDung","donothing"],1))
                             )
+                            logger.info(f"点击前截图判断为无镐子可用, 退出副本.")
                             break
 
-                        Sleep(1.5)
+                        Press([450,600])
+                        Sleep(0.5)
+
+                        result = CheckState(ScreenShot())
+                        if ("retry" in result) or ("receive" in result):
+                            continue
+                        elif "end" in result:
+                            RestartableSequenceExecution(
+                                lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("ReturnText",[[1,1],"leaveDung","donothing"],1))
+                            )
+                            logger.info(f"点击后截图判断为无矿可挖, 退出副本.")
+                            break
+                        elif "pickaxe" in result:
+                            resetBag = True
+                            RestartableSequenceExecution(
+                                lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("ReturnText",[[1,1],"leaveDung","donothing"],1))
+                            )
+                            logger.info(f"点击后截图判断为无镐子可用, 退出副本.")
+                            break
+                        
+                        Sleep(2)
 
                     if resetBag:
                         RestartableSequenceExecution(
