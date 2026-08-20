@@ -584,10 +584,15 @@ def Factory():
     def Sleep(t=1):
         time.sleep(t)
     def ScreenShot():
-        if "wizardry" not in DeviceShell("dumpsys window | grep mCurrentFocus"):
-            logger.error("游戏未启动!")
-        
-            restartGame(skip_screenshot=True)
+        try:
+            if "wizardry" not in DeviceShell("dumpsys window | grep mCurrentFocus"):
+                logger.error("游戏未启动!")
+            
+                restartGame(skip_screenshot=True)
+        except Exception as e:
+            if isinstance(e,RestartSignal):
+                logger.error("截个图也能遇见崩溃吗...")
+                pass
 
         nonlocal runtimeContext
 
@@ -689,8 +694,6 @@ def Factory():
                     logger.info(_("你开启了应用保活, 请关闭.\n请在\"设备设置-其他-应用运行\"中关闭."))
                     setting._FORCESTOPING.set()
                     return
-                if isinstance(e,RestartSignal):
-                    pass # TODO 可能是错的 先这么写
 
                 Sleep(1)
 
@@ -1103,17 +1106,13 @@ def Factory():
 
         if not partyName:
             RestartableSequenceExecution(
-                        lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("Edit",["guild",[1,1]],1)),
-                        lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("PartyManagement",["Edit",[1,1]],1)),
-                        lambda: FindCoordsOrElseExecuteFallbackAndWait("AdventurerGuild",["PartyManagement",[1,1]],1),
+                        lambda: FindCoordsOrElseExecuteFallbackAndWait("PartyManagementTitle",["PartyManagement","Edit","guild",[1,1]],1),
                         lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("ok",[[137,290],"AssembleParty"],1)),
                         lambda: FindCoordsOrElseExecuteFallbackAndWait("Inn","return",1)
                 )
         else:
             RestartableSequenceExecution(
-                        lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("Edit",["guild",[1,1]],1)),
-                        lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("PartyManagement",["Edit",[1,1]],1)),
-                        lambda: FindCoordsOrElseExecuteFallbackAndWait("AdventurerGuild",["PartyManagement",[1,1]],1),
+                        lambda: FindCoordsOrElseExecuteFallbackAndWait("PartyManagementTitle",["PartyManagement","Edit","guild",[1,1]],1),
                         lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("ok",[partyName,"AssembleParty"],1)),
                         lambda: FindCoordsOrElseExecuteFallbackAndWait("Inn","return",1)
                             )
@@ -2004,7 +2003,8 @@ def Factory():
                     Press([1,1])
                     ########### 重置战斗策略
                     if (runtimeContext._TIME_COMBAT !=0) and (setting.RELOAD_STRATEGY_WHEN == _("每场战斗前")):
-                        ReloadStrategy()
+                        logger.error("暂时取消了对于\"每场战斗前重置\"的支持. 请打开游戏内角色面板中的\"重复上一次\"设置.")
+                        # ReloadStrategy()
                     ########### TIMER
                     if (runtimeContext._TIME_CHEST !=0) or (runtimeContext._TIME_COMBAT!=0):
                         spend_on_chest = 0
@@ -3225,6 +3225,9 @@ def Factory():
                             if vals[best := max(vals, key=vals.get)] > 0.9:
                                 logger.info(f"获得了{best}!")
                                 counter[best]+=1
+                                if best == "全改":
+                                    logger.info("哇, 全改! 赶快截图保存下吧.")
+                                    SaveImage(scn)
                             else:
                                 SaveImage(scn)
                                 logger.info(f"某些无法判断的东西...")
