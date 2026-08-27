@@ -1,7 +1,5 @@
 from ppadb.client import Client as AdbClient
 from win10toast import ToastNotifier
-from scipy.optimize import curve_fit
-from scipy.signal import find_peaks
 from enum import Enum
 import os
 import subprocess
@@ -51,8 +49,8 @@ CONFIG_VAR_LIST = [
             ["TEMPLATE",   "TASK_POINT_STRATEGY",                   dict,          {}],
             ["TEMPLATE",   "QUICK_DISARM_CHEST",                    tk.BooleanVar, False],
             ["TEMPLATE",   "WHO_WILL_OPEN_IT",                      tk.IntVar,     0],
-            ["TEMPLATE",   "SKIP_COMBAT_RECOVER",                   tk.BooleanVar, False],
-            ["TEMPLATE",   "SKIP_CHEST_RECOVER",                    tk.BooleanVar, False],
+            ["TEMPLATE",   "DO_COMBAT_RECOVER",                     tk.BooleanVar, True],
+            ["TEMPLATE",   "DO_CHEST_RECOVER",                      tk.BooleanVar, True],
             ["TEMPLATE",   "RECOVER_WHEN_BEGINNING",                tk.BooleanVar, False],
             ["TEMPLATE",   "ACTIVE_REST",                           tk.BooleanVar, True],
             ["TEMPLATE",   "ACTIVE_ROYALSUITE_REST",                tk.BooleanVar, False],
@@ -1624,13 +1622,11 @@ def Factory():
                     repeat = 1
 
                 for t in range(repeat): # 至少保证一轮随机选择
-                    x0, y0 = 75, 296
-                    width, height = 827, 600
-
-                    cols = 4
+                    x0, y0 = 0, 560
+                    cols = 8
                     rows = 3
-                    cell_w = width / cols
-                    cell_h = height / rows
+                    cell_w = 110
+                    cell_h = 110
 
                     for row in range(rows):
                         for col in range(cols):
@@ -2042,7 +2038,7 @@ def Factory():
                         runtimeContext._COUNTERCHEST+=1
                         needRecoverBecauseChest = False
                         runtimeContext._MEET_CHEST_OR_COMBAT = True
-                        if not setting.SKIP_CHEST_RECOVER:
+                        if setting.DO_CHEST_RECOVER:
                             logger.info(_("由于面板配置, 进行开启宝箱后恢复."))
                             shouldRecover = True
                         else:
@@ -2051,7 +2047,7 @@ def Factory():
                         runtimeContext._COUNTERCOMBAT+=1
                         needRecoverBecauseCombat = False
                         runtimeContext._MEET_CHEST_OR_COMBAT = True
-                        if (not setting.SKIP_COMBAT_RECOVER):
+                        if (setting.DO_COMBAT_RECOVER):
                             logger.info(_("由于面板配置, 进行战后恢复."))
                             shouldRecover = True
                         else:
@@ -2547,7 +2543,7 @@ def Factory():
                                 runtimeContext._COUNTERCHEST+=1
                                 needRecoverBecauseChest = False
                                 runtimeContext._MEET_CHEST_OR_COMBAT = True
-                                if not setting.SKIP_CHEST_RECOVER:
+                                if setting.DO_CHEST_RECOVER:
                                     logger.info(_("由于面板配置, 进行开启宝箱后恢复."))
                                     shouldRecover = True
                                 else:
@@ -2556,7 +2552,7 @@ def Factory():
                                 runtimeContext._COUNTERCOMBAT+=1
                                 needRecoverBecauseCombat = False
                                 runtimeContext._MEET_CHEST_OR_COMBAT = True
-                                if (not setting.SKIP_COMBAT_RECOVER):
+                                if setting.DO_COMBAT_RECOVER:
                                     logger.info(_("由于面板配置, 进行战后恢复."))
                                     shouldRecover = True
                                 else:
