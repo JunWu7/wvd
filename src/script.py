@@ -113,9 +113,10 @@ class FarmQuest:
     _TARGETINFOLIST = None
     _EOT = None
     _preEOTcheck = None
+    _FloorCheck = None
     _SPECIALDIALOGOPTION = None
+    _SPECIALDIALOGOPTION_CALLBACK = None
     _SPECIALFORCESTOPINGSYMBOL = None
-    _SPELLSEQUENCE = None
     _TYPE = None
     _RTT = None # Return To Town, 回程时执行的流程
     _TIPS = None
@@ -1127,7 +1128,7 @@ def Factory():
                 summary_text += f"箱子效率{round(runtimeContext._TOTALTIME/runtimeContext._COUNTERCHEST,2)}秒/箱.\n累计开箱{runtimeContext._COUNTERCHEST}次,开箱平均耗时{round(runtimeContext._TIME_CHEST_TOTAL/runtimeContext._COUNTERCHEST,2)}秒.\n"
             if runtimeContext._COUNTERCOMBAT > 0:
                 summary_text += _("累计战斗{a}次.战斗平均用时{b}秒.".format(a=runtimeContext._COUNTERCOMBAT, b=round(runtimeContext._TIME_COMBAT_TOTAL/runtimeContext._COUNTERCOMBAT,2)))
-            logger.info("{a}{b}".format(a=runtimeContext._IMPORTANTINFO, b=summary_text),extra={"summary": True})
+            logger.info("{a}{b}".format(a=runtimeContext._IMPORTANTINFO, b=summary_text),summary=True)
         # 圈数计时器
         runtimeContext._LAPTIME = time.time()
 
@@ -1388,6 +1389,10 @@ def Factory():
             if quest._SPECIALDIALOGOPTION != None:
                 for option in quest._SPECIALDIALOGOPTION:
                     if Press(CheckIf(screen,option)):
+                        Press(CheckIf(screen,"bondmate_close",[[277,751,330,600]]))
+                        if quest._SPECIALDIALOGOPTION_CALLBACK != None:
+                            logger.info("由于触发了特殊对话, 使用了回调函数.")
+                            quest._SPECIALDIALOGOPTION_CALLBACK(option)
                         return IdentifyState()
 
             if counter>=4:
@@ -1402,7 +1407,7 @@ def Factory():
                         setting._MSGQUEUE.put(("turn_to_7000G",""))
                         raise SystemExit
                     else:
-                        logger.info(_("看起来你没有选择找王女要钱. 那么就等两个小时吧."), extra={"summary": True})
+                        logger.info(_("看起来你没有选择找王女要钱. 那么就等两个小时吧."), summary=True)
                         Sleep(7300)
                         restartGame()
                 if CheckIf(screen,"ambush") or CheckIf(screen,"ignore"):
@@ -1794,7 +1799,7 @@ def Factory():
                     break
             lastscreen = screen
         return dungState
-    def StateSearch(waitTimer, targetInfo):
+    def StateMapSearch(targetInfo):
         normalPlace = ["harken","chest","leaveDung","position","Bharken"]
         target = targetInfo.target
         # 地图已经打开.
@@ -1803,64 +1808,49 @@ def Factory():
         if CheckIf(map,"tooPoorToReadTheMap"):
             logger.info(_("在暴风雪中."))
             Press(CheckIf(map,"dungFlag"))
-            return StateMoving_CheckStop(),False
+            return StateMoving_CheckStop(),"FAIL"
     
         if not CheckIf(map,"mapFlag"):
             logger.info(_("没有检测到地图."))
-            return None,False # 发生了其他错误
+            return None,"FAIL" # 发生了其他错误
+
+        if quest._FloorCheck is not None:
+            if not CheckIf(map,quest._FloorCheck):
+                logger.error("楼层错误.")
+                return None, "WRONGFLOOR"
 
         try:
             searchResult = StateMap_FindSwipeClick(targetInfo)
         except KeyError as e:
             logger.info(_("错误: {a}".format(a=e))) # 一般来说这里只会返回"地图不可用
-            return None, False
-    
-        if not CheckIf(map,"mapFlag"):
-                return None, False # 发生了错误, 应该是进战斗了
+            return None, "FAIL"
 
         if searchResult == None:
             if target == "chest":
                 logger.info(_("没有找到宝箱.\n停止检索宝箱."))
-                return DungeonState.Map,  True
+                return DungeonState.Map,  "DONE"
             elif (target == "position" or target.startswith("stair")):
                 logger.info(_("已经抵达目标地点或目标楼层."))
-                return DungeonState.Map,  True
+                return DungeonState.Map,  "DONE"
             else:
                 # 这种时候我们认为真正失败了. 所以不弹出.
                 # 当然, 更好的做法时传递finish标识()
                 logger.info(_("未找到目标{a}.".format(a=target)))
-                return DungeonState.Map,  False
+                return DungeonState.Map,  "FAIL"
         else:
             if target in normalPlace or target.endswith("_quit") or target.startswith("stair"):
                 Press(searchResult)
                 Press([136,1431]) # automove
-                return StateMoving_CheckStop(),False
+                return StateMoving_CheckStop(),"FAIL"
             else:
                 if (CheckIf_FocusCursor(ScreenShot(),target)): #注意 这里通过二次确认 我们可以看到目标地点 而且是未选中的状态
                     logger.info(_("经过对比中心区域, 确认没有抵达."))
                     Press(searchResult)
                     Press([136,1431]) # automove
-                    return StateMoving_CheckStop(), False
+                    return StateMoving_CheckStop(), "FAIL"
                 else:
-                    # if setting._DUNGWAITTIMEOUT == 0:
-                        logger.info(_("经过对比中心区域, 判断为抵达目标地点."))
-                        logger.info(_("无需等待, 当前目标已完成."))
-                        return DungeonState.Map, True
-                    # else:
-                    #     logger.info(_("经过对比中心区域, 判断为抵达目标地点."))
-                    #     logger.info(_("开始等待...等待..."))
-                    #     PressReturn()
-                    #     Sleep(0.5)
-                    #     PressReturn()
-                    #     while 1:
-                    #         if setting._DUNGWAITTIMEOUT-time.time()+waitTimer<0:
-                    #             logger.info(_("等得够久了. 目标地点完成."))
-                    #             Sleep(1)
-                    #             Press([777,150])
-                    #             return None, True
-                    #         logger.info(_("还需要等待{a}秒.".foramt(a=setting._DUNGWAITTIMEOUT-time.time()+waitTimer)))
-                    #         if StateCombatCheck(ScreenShot()):
-                    #             return DungeonState.Combat, False
+                    logger.info(_("经过对比中心区域, 判断为抵达目标地点."))
+                    return DungeonState.Map, "DONE"
         return DungeonState.Map, False
     def StateChest():
         nonlocal runtimeContext
@@ -1952,7 +1942,6 @@ def Factory():
         GAMEFROZEN_STATEMAPLIMIT = 20+20*len(targetInfoList)
         dungState = None
         shouldRecover = False
-        waitTimer = time.time()
         needRecoverBecauseCombat = False
         needRecoverBecauseChest = False
 
@@ -2147,7 +2136,7 @@ def Factory():
                         if targetInfoList[0] and (targetInfoList[0].target =="stay"):
                             Sleep(2)
                             return None
-                        for tar in ["chest_auto","mark_auto"]:
+                        for tar in ["chest_auto","mark_auto", "quit_dungeon"]:
                             if targetInfoList[0] and (targetInfoList[0].target == tar):                        
                                 lastscreen = ScreenShot()
                                 if not Press(CheckIf(lastscreen,tar,[[720,250,150,180]])):
@@ -2191,10 +2180,15 @@ def Factory():
                     Press([777,150])
                     Sleep(1)
 
-                    dungState, ifTargetPointComplete = StateSearch(waitTimer,targetInfoList[0])
+                    dungState, ifTargetPointComplete = StateMapSearch(targetInfoList[0])
 
-                    if ifTargetPointComplete:
-                        TargetPointComplete()
+                    match ifTargetPointComplete:
+                        case "DONE":
+                            TargetPointComplete()
+                        case "FAIL":
+                            pass
+                        case "WRONGFLOOR":
+                            targetInfoList.insert(0, TargetInfo("dungFlag")) # dungFlag也就是退出地下城按钮
 
                     if (targetInfoList==None) or (targetInfoList == []):
                         logger.info(_("地下城目标完成. 地下城状态结束.(仅限任务模式.)"))
@@ -2353,7 +2347,7 @@ def Factory():
                         )
                     costtime = time.time()-starttime
                     logger.info(_("第{a}次\"7000G\"完成. 该次花费时间{b:.2f}, 每秒收益:{c:.2f}Gps.".format(a=runtimeContext._COUNTERDUNG, b=costtime, c=7000/costtime)),
-                                extra={"summary": True})
+                                summary=True)
             case "fordraig":
                 quest._SPECIALDIALOGOPTION = ["fordraig/thedagger","fordraig/InsertTheDagger"]
                 while 1:
@@ -2422,7 +2416,7 @@ def Factory():
 
                     costtime = time.time()-starttime
                     logger.info(_("第{a}次\"鸟剑\"完成. 该次花费时间{b:.2f}.".format(a=runtimeContext._COUNTERDUNG, b=costtime)),
-                            extra={"summary": True})
+                            summary=True)
             case "repelEnemyForces":
                 if not setting.ACTIVE_REST:
                     logger.info(_("注意, \"休息间隔\"控制连续战斗多少次后回城. 当前未启用休息, 强制设置为1."))
@@ -2488,7 +2482,7 @@ def Factory():
                     )
                     counter+=1
                     logger.info(_("第{a}x{b}轮\"击退敌势力\"完成, 共计{c}场战斗. 该次花费时间{c:.2f}秒.".format(a=counter, b=setting.REST_INTERVEL, c=counter*setting.REST_INTERVEL*2), c=(time.time()-t)),
-                                    extra={"summary": True})
+                                    summary=True)
             case "darkLight":
                 gameFrozen_StateNoneScreenHistory = []
                 dungState = None
@@ -2621,7 +2615,7 @@ def Factory():
                     if runtimeContext._LAPTIME!= 0:
                         runtimeContext._TOTALTIME = runtimeContext._TOTALTIME + time.time() - runtimeContext._LAPTIME
                         logger.info(_("第{a}次三牛完成. 本次用时:{b}秒. 累计开箱子{c}, 累计战斗{d}, 累计用时{e}秒.".format(a=runtimeContext._COUNTERDUNG, b=round(time.time()-runtimeContext._LAPTIME,2),c=runtimeContext._COUNTERCHEST, d=runtimeContext._COUNTERCOMBAT, e=round(runtimeContext._TOTALTIME,2))),
-                                    extra={"summary": True})
+                                    summary=True)
                     runtimeContext._LAPTIME = time.time()
                     runtimeContext._COUNTERDUNG+=1
 
@@ -2684,7 +2678,7 @@ def Factory():
                     if runtimeContext._LAPTIME!= 0:
                         runtimeContext._TOTALTIME = runtimeContext._TOTALTIME + time.time() - runtimeContext._LAPTIME
                         logger.info(_("第{a}次忍洞完成. 本次用时:{b}秒. 累计开箱子{c}, 累计战斗{d}, 累计用时{e}秒.".format(a=runtimeContext._COUNTERDUNG, b=round(time.time()-runtimeContext._LAPTIME,2),c=runtimeContext._COUNTERCHEST, d=runtimeContext._COUNTERCOMBAT, e=round(runtimeContext._TOTALTIME,2))),
-                                    extra={"summary": True})
+                                    summary=True)
                     runtimeContext._LAPTIME = time.time()
                     runtimeContext._COUNTERDUNG+=1
                     RestartableSequenceExecution(
@@ -2751,7 +2745,7 @@ def Factory():
                     if runtimeContext._LAPTIME!= 0:
                         runtimeContext._TOTALTIME = runtimeContext._TOTALTIME + time.time() - runtimeContext._LAPTIME
                         logger.info(_("第{a}次约定之剑完成. 本次用时:{b}秒. 累计开箱子{c}, 累计战斗{d}, 累计用时{e}秒.".format(a=runtimeContext._COUNTERDUNG, b=round(time.time()-runtimeContext._LAPTIME,2),c=runtimeContext._COUNTERCHEST, d=runtimeContext._COUNTERCOMBAT, e=round(runtimeContext._TOTALTIME,2))),
-                                    extra={"summary": True})
+                                    summary=True)
                     runtimeContext._LAPTIME = time.time()
                     runtimeContext._COUNTERDUNG+=1
                     RestartableSequenceExecution(
@@ -2839,7 +2833,7 @@ def Factory():
                     if runtimeContext._LAPTIME!= 0:
                         runtimeContext._TOTALTIME = runtimeContext._TOTALTIME + time.time() - runtimeContext._LAPTIME
                         logger.info(_("第{a}次巨人完成. 本次用时:{b}秒. 累计开箱子{c}, 累计战斗{d}, 累计用时{e}秒.".format(a=runtimeContext._COUNTERDUNG, b=round(time.time()-runtimeContext._LAPTIME,2),c=runtimeContext._COUNTERCHEST, d=runtimeContext._COUNTERCOMBAT, e=round(runtimeContext._TOTALTIME,2))),
-                                    extra={"summary": True})
+                                    summary=True)
                     runtimeContext._LAPTIME = time.time()
                     runtimeContext._COUNTERDUNG+=1
 
@@ -2941,7 +2935,7 @@ def Factory():
                     costtime = time.time()-starttime
                     total_time = total_time + costtime
                     logger.info(_("第{a}次\"悬赏:蝎女\"完成. \n该次花费时间{b:.2f}s.\n总计用时{c:.2f}s.\n平均用时{d:.2f}".format(a=runtimeContext._COUNTERDUNG,b=costtime, c=total_time, d=total_time/runtimeContext._COUNTERDUNG)),
-                            extra={"summary": True})
+                            summary=True)
             case "Scorpionesses_plus_6_hands":
                 total_time = 0
                 while 1:
@@ -3040,7 +3034,7 @@ def Factory():
                     costtime = time.time()-starttime
                     total_time = total_time + costtime
                     logger.info(_("第{a}次\"悬赏:蝎女+六手\"完成. \n该次花费时间{b:.2f}s.\n总计用时{c:.2f}s.\n平均用时{d:.2f}".format(a=runtimeContext._COUNTERDUNG,b=costtime, c=total_time, d=total_time/runtimeContext._COUNTERDUNG)),
-                            extra={"summary": True})
+                            summary=True)
             case "steeltrail":
                 total_time = 0
                 while 1:
@@ -3075,7 +3069,7 @@ def Factory():
                     costtime = time.time()-starttime
                     total_time = total_time + costtime
                     logger.info(_("第{a}次\"钢试炼\"完成. \n该次花费时间{b:.2f}s.\n总计用时{c:.2f}s.\n平均用时{d:.2f}".format(a=runtimeContext._COUNTERDUNG,b=costtime, c=total_time, d=total_time/runtimeContext._COUNTERDUNG)),
-                            extra={"summary": True})
+                            summary=True)
             case "jier":
                 total_time = 0
                 while 1:
@@ -3139,7 +3133,7 @@ def Factory():
                     costtime = time.time()-starttime
                     total_time = total_time + costtime
                     logger.info(_("第{a}次\"悬赏:吉尔\"完成. \n该次花费时间{b:.2f}s.\n总计用时{c:.2f}s.\n平均用时{d:.2f}".format(a=runtimeContext._COUNTERDUNG,b=costtime, c=total_time, d=total_time/runtimeContext._COUNTERDUNG)),
-                            extra={"summary": True})
+                            summary=True)
             case "lovesleep":
                 logger.info(_("开始睡觉."))
                 t = time.time()
@@ -3151,7 +3145,7 @@ def Factory():
                             )
                     if setting._FORCESTOPING.is_set():
                         break
-                    logger.info(_("完成了{a}次旅店休息.\n总计用时{c:.2f}s.\n平均用时{d:.2f}s.").format(a=counter+1, c=time.time()-t, d=(time.time()-t)/(counter+1)),extra={"summary": True})
+                    logger.info(_("完成了{a}次旅店休息.\n总计用时{c:.2f}s.\n平均用时{d:.2f}s.").format(a=counter+1, c=time.time()-t, d=(time.time()-t)/(counter+1)),summary=True)
             case "fortress-B8F_trap":
                 while 1:
                     if setting._FORCESTOPING.is_set():
@@ -3159,7 +3153,7 @@ def Factory():
                     if runtimeContext._LAPTIME!= 0:
                         runtimeContext._TOTALTIME = runtimeContext._TOTALTIME + time.time() - runtimeContext._LAPTIME
                         logger.info(_("第{a}次要塞小精灵完成. 本次用时:{b}秒. 累计开箱子{c}, 累计战斗{d}, 累计用时{e}秒.".format(a=runtimeContext._COUNTERDUNG, b=round(time.time()-runtimeContext._LAPTIME,2),c=runtimeContext._COUNTERCHEST, d=runtimeContext._COUNTERCOMBAT, e=round(runtimeContext._TOTALTIME,2))),
-                                    extra={"summary": True})
+                                    summary=True)
                     runtimeContext._LAPTIME = time.time()
                     runtimeContext._COUNTERDUNG+=1
 
@@ -3305,7 +3299,60 @@ def Factory():
                         if v>0:
                             output_str += f"{k}:{v}个,"
                     output_str += f"\n累计用时:{(time.time()-start_time):.2f}."
-                    logger.info(output_str,extra={"summary": True})
+                    logger.info(output_str,summary=True)
+            case "sandman":
+                sandman_complete = False
+                
+                setting.RE_ASSEMBLE_PARTY = False
+                setting.BYPASS_THE_WALL = False
+                counter = 0
+                start_time = time.time()
+                quest._FloorCheck = "stair_fortress3f"
+                quest._EOT =[["press","impregnableFortress",["EdgeOfTown",[1,1]],1],
+                             ["press","fortressb3f","input swipe 650 250 650 900",1]
+                            ]
+                quest._SPECIALDIALOGOPTION = ["sandman/sandman_1",
+                                              "sandman/sandman_2",
+                                              "sandman/sandman_bondmate"]
+                def callback(option):
+                    nonlocal sandman_complete
+                    if option == "sandman/sandman_bondmate":
+                        sandman_complete = True
+                    return
+                quest._SPECIALDIALOGOPTION_CALLBACK = callback
+                quest._TARGETINFOLIST = [TargetInfo("position","左下",[133,814]),
+                                         TargetInfo("position","左下",[238,1076]),
+                                         TargetInfo("position","左下",[450,924]),
+                                         TargetInfo("harken2","左下")]
+
+                
+                while 1:
+                    RestartableSequenceExecution(    
+                        lambda: StateEoT()
+                        )
+                    RestartableSequenceExecution(
+                        lambda: StateDungeon(quest._TARGETINFOLIST)
+                        )
+                    if sandman_complete:
+                        sandman_complete = False
+                        RestartableSequenceExecution(
+                            lambda: StateInn()
+                            )
+                        RestartableSequenceExecution(    
+                            lambda: CursedWheelTimeLeap(target="requestToRescueTheDuke",
+                                                        chapter = "cursedwheel_impregnableFortress")
+                            )
+                        Sleep(10)
+                        RestartableSequenceExecution(    
+                            lambda: StateInn()
+                            )
+                        RestartableSequenceExecution(    
+                            lambda: CursedWheelTimeLeap(target="Triumph",
+                                                        chapter = "cursedwheel_impregnableFortress")
+                            )
+                        counter+=1
+                        logger.info(f"已完成{counter}次沙人缘.\n用时{time.time()-start_time:.2f}秒.",summary = True)
+                        break
         ##########################
         setting._FINISHINGCALLBACK()
         return

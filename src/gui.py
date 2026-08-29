@@ -543,7 +543,7 @@ class ConfigPanelApp(tk.Toplevel):
             ShowChangesLogWindow()
             self.LAST_VERSION.set(version)
             self.save_config()
-    
+
     def save_config(self):
         # karma
         if self.KARMA_ADJUST.get().isdigit():
@@ -616,11 +616,6 @@ class ConfigPanelApp(tk.Toplevel):
             self.summary_log_display.insert(tk.END, message)
             self.summary_log_display.configure(state='disabled')
 
-        # 从基础模块导入 summary_filter（已在 script 中定义）
-        # 如果未导入，可在此处定义：
-        # def summary_filter(record):
-        #     return record["extra"].get("summary", False)
-
         # 添加普通日志 sink
         self._log_handler_id = logger.add(
             log_sink,
@@ -668,12 +663,23 @@ class ConfigPanelApp(tk.Toplevel):
         
         def selectADB_PATH():
             path = filedialog.askopenfilename(
-                title=_("选择ADB执行文件"),
+                title=_("选择可执行文件"),
                 filetypes=[("Executable", "*.exe"), ("All files", "*.*")]
             )
             if path:
                 self.EMU_PATH.set(path)
                 self.save_config()
+
+                if emu_path:=self.EMU_PATH.get():
+                    path_check = False
+                    if emu_path.endswith(r"nx_device/12.0/shell/MuMuNxDevice.exe"):
+                        path_check = True
+                    if emu_path.endswith(r"nx_device/15.0/shell/MuMuNxDevice.exe"):
+                        path_check = True
+                    if emu_path.endswith(r"MuMu Player 12/shell/MuMuPlayer.exe"):
+                        path_check = True
+                    if not path_check:
+                        logger.error("\n\n警告: 设置的模拟器路径可能不正确.\n如果你遇到无法启动模拟器, 请尝试重新设置路径.\n\n")
 
         self.adb_path_change_button = ttk.Button(
             frame_row, text=_("修改"), command=selectADB_PATH, width=5
