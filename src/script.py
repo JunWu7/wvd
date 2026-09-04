@@ -1620,13 +1620,18 @@ def Factory():
                 logger.info(_("释放了位于\"{a}\"的全体技能, 技能等级为{b}.".format(a=skillPos, b=skilllvl)))
                 Sleep(2)
             else:
-                repeat = 2
-                if pos:= CheckIf(scn,"next",[[1,291,898,600]]):
-                    Press([pos[0]+15,pos[1]+50])
-                    logger.info(_("释放了位于\"{a}\"的单体技能, 技能等级为{b}. 选择next作为敌方目标.".format(a=skillPos, b=skilllvl)))
-                    repeat = 1
-
-                for t in range(repeat): # 至少保证一轮随机选择
+                candidates,result_image = StateCombat_DetectArrow(CutRoI(scn,[[0,61,900,863]]))
+                
+                if candidates is not None:
+                    SaveImage(result_image)
+                    for index, (x, y, score, label) in enumerate(candidates):
+                        if index >= 3: # 只点前三
+                            break
+                        for i in range(5):
+                            Press([x,y+161+i*15]) # +161因为CutRoI.
+                            Sleep(0.05)
+                        logger.info(f"点击箭头 #{index+1}: 位于({x},{y}), 总分{score:.3f}, 通道{label}.")
+                else:
                     x0, y0 = 0, 560
                     cols = 8
                     rows = 3
@@ -1642,7 +1647,7 @@ def Factory():
                             Press([x, y])
                             Sleep(0.05)
 
-                logger.info(_("释放了位于\"{a}\"的单体技能, 技能等级为{b}. 随机选择敌方目标.".format(a=skillPos, b=skilllvl)))
+                    logger.info(_("释放了位于\"{a}\"的单体技能, 技能等级为{b}. 随机选择敌方目标.".format(a=skillPos, b=skilllvl)))
                 Sleep(2)
 
             # 资源不足
@@ -1936,7 +1941,8 @@ def Factory():
                 return DungeonState.Combat
             
             TryPressRetry(scn)
-    def StateDungeon(targetInfoList : list[TargetInfo]):
+    def StateDungeon(originalTargetInfoList : list[TargetInfo]):
+        targetInfoList = copy.deepcopy(originalTargetInfoList)
         gameFrozen_StateNoneScreenHistory = []
         gameFrozen_StateMapCounter = 0
         GAMEFROZEN_STATEMAPLIMIT = 20+20*len(targetInfoList)
@@ -2136,7 +2142,7 @@ def Factory():
                         if targetInfoList[0] and (targetInfoList[0].target =="stay"):
                             Sleep(2)
                             return None
-                        for tar in ["chest_auto","mark_auto", "quit_dungeon"]:
+                        for tar in ["chest_auto","mark_auto", "dungFlag"]:
                             if targetInfoList[0] and (targetInfoList[0].target == tar):                        
                                 lastscreen = ScreenShot()
                                 if not Press(CheckIf(lastscreen,tar,[[720,250,150,180]])):
@@ -2189,6 +2195,7 @@ def Factory():
                             pass
                         case "WRONGFLOOR":
                             targetInfoList.insert(0, TargetInfo("dungFlag")) # dungFlag也就是退出地下城按钮
+                            # targetInfoList是复制的临时变量, 也就是每次退出stateDungeon就会重置, 因此可以放心修改.
 
                     if (targetInfoList==None) or (targetInfoList == []):
                         logger.info(_("地下城目标完成. 地下城状态结束.(仅限任务模式.)"))
@@ -3353,6 +3360,56 @@ def Factory():
                         counter+=1
                         logger.info(f"已完成{counter}次沙人缘.\n用时{time.time()-start_time:.2f}秒.",summary = True)
                         break
+            case "fishing":
+                start_time = time.time()
+                t = time.time()
+                total_time = 0
+                fish = 0
+                failed_fishing = 0
+                while 1:
+                    if setting._FORCESTOPING.is_set():
+                        break
+
+                    scn = ScreenShot()
+                    if TryPressRetry(scn):
+                        logger.info("网络故障, 重试中......")
+                        Sleep(1)
+                        continue
+
+                    if CheckIf(scn, "fishing/cast"):
+                        for i in range(5):
+                            DeviceShell(f"input swipe 50 1200 850 1200 100")
+                        for i in range(2):
+                            DeviceShell(f"input swipe 850 1200 50 1200 100")
+                        Sleep(1)
+                        DeviceShell(f"input swipe 400 1200 450 1250 2250")
+                        logger.info("下杆!")
+                        t = time.time()
+                        Sleep(2)
+                        continue
+
+                    if pos:=CheckIf(scn, "fishing/striking"):
+                        if time.time()-t>180:
+                            logger.info("3分钟了还没钓到, 重来吧.")
+                            failed_fishing += 1
+                            Press(pos)
+                            Sleep(5)
+                        DeviceShell(f"input swipe 450 700 450 50 100")
+                        Sleep(2.5) # 拉杆动画大约2秒动作和0.2秒冷却
+                        continue
+
+                    if Press(CheckIf(scn, "fishing/CloseFishInfo")):
+                        fish += 1
+                        total_time = total_time + time.time() - t
+                        t = 0
+                        logger.info(f"已完成钓鱼{fish}次, 失败{failed_fishing}次.\n累计用时{time.time()-start_time:.2f}秒, 平均每条鱼用时{total_time/fish:.2f}秒.", summary = True)
+                        SaveImage(scn=scn)
+                        Sleep(5)
+                        continue
+
+                    for i in range(20):
+                        DeviceShell(f"input swipe 250 1200 850 1200 100")
+                    
         ##########################
         setting._FINISHINGCALLBACK()
         return

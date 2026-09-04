@@ -169,6 +169,25 @@ def SaveImage(scn, name=None):
     logger.info(f"截图已保存在{file_path}中.")
     cv2.imwrite(file_path, scn)
 
+def CleanupOldImages(days=3):
+    """删除 logs 文件夹中超过指定天数的截图（.png）"""
+    import time
+    import glob
+
+    now = time.time()
+    cutoff = now - days * 86400  # 3 天前的秒数
+
+    pattern = os.path.join(LOGS_FOLDER_NAME, "*.png")
+    for filepath in glob.glob(pattern):
+        try:
+            mtime = os.path.getmtime(filepath)
+            if mtime < cutoff:
+                os.remove(filepath)
+                logger.debug(f"已删除过期截图: {filepath}")
+        except Exception as e:
+            logger.error(f"删除过期截图失败 {filepath}: {e}")
+
+CleanupOldImages()
 ############################################
 CONFIG_FILE = 'config.json'
 def SaveConfigToFile(config_data):
@@ -293,6 +312,25 @@ def _build_quest_data():
 
 QUEST_DATA = _build_quest_data()
 
+QUEST_CATEGORY_ORDER = {
+    "最新任务": 0,
+    "WHATS NEW": 0,
+    "主线前三章" : 3,
+    "Chapter 1,2 and 3":3,
+    "主线第四章": 4,
+    "Chapter 4": 4,
+    "任务洞窟": 10,
+    "Request Caves": 10,
+    "矿石" : 20,
+    "Ore": 20,
+    "月常": 30,
+    "Monthly Requests": 30,
+    "FFXI联动": 11,
+    "FFXI Cave": 11,
+    "其他": 999,
+    "Other": 999
+    }
+
 def BuildQuestReflection():
     try:
         data = QUEST_DATA
@@ -306,6 +344,12 @@ def BuildQuestReflection():
             seen_names.add(quest_name)
             category = quest_info.get(f"questCategory_{LANGUAGE}", quest_info["questCategory"])
             quest_reflect_map.setdefault(category, {})[quest_name] = quest_code
+
+        sorted_categories = sorted(
+            quest_reflect_map.keys(),
+            key=lambda c: (QUEST_CATEGORY_ORDER.get(c, float('inf')), c)
+        )
+        quest_reflect_map = {cat: quest_reflect_map[cat] for cat in sorted_categories}
         
         return quest_reflect_map
     except KeyError as e:
@@ -390,3 +434,128 @@ class Tooltip:
         if self.tooltip_window:
             self.tooltip_window.destroy()
             self.tooltip_window = None
+###########################################
+# MASK1 = LoadTemplateImage("spellskill/arrow/mask1") # 箭头内部区域
+# if MASK1.ndim == 3:
+#     MASK1 = cv2.cvtColor(MASK1, cv2.COLOR_BGR2GRAY)
+# MASK2 = LoadTemplateImage("spellskill/arrow/mask2") # 非箭头区域, 近似看作背景
+# if MASK2.ndim == 3:
+#     MASK2 = cv2.cvtColor(MASK2, cv2.COLOR_BGR2GRAY)
+MASK3 = LoadTemplateImage("spellskill/arrow/mask3") # 边缘
+if MASK3.ndim == 3:
+    MASK3 = cv2.cvtColor(MASK3, cv2.COLOR_BGR2GRAY)
+    MASK3 = MASK3.astype(np.float32) / 255.0
+    
+def StateCombat_DetectArrow(screenshot):
+    """
+    使用手绘三角形模板匹配检测图像中的三角形区域。
+
+    参数:
+        mask3: 灰度模板图像（白色内部，黑色外部），用于提取边缘方向场
+        screenshot: BGR彩色测试图像
+        threshold: 归一化响应的阈值，范围[0,1]，默认0.5
+
+    返回:
+        results: 去重后的检测结果列表，每个元素为 (center_x, center_y, score, channel_label)
+        marked_img: 在原图上标记了所有检测框的图像
+    """
+
+    threshold = 0.5
+
+    # ---------- 模板方向场 ----------
+    gx_t = cv2.Sobel(MASK3, cv2.CV_32F, 1, 0, ksize=3)
+    gy_t = cv2.Sobel(MASK3, cv2.CV_32F, 0, 1, ksize=3)
+    mag_t = np.sqrt(gx_t**2 + gy_t**2) + 1e-6
+    gx_t /= mag_t
+    gy_t /= mag_t
+
+    mask_h, mask_w = MASK3.shape[:2]
+    dedup_dist = 0.5 * min(mask_h, mask_w)   # 去重距离阈值（模板短边一半）
+
+    # ---------- 准备测试通道：灰度和R通道 ----------
+    gray = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
+    _, _, r_channel = cv2.split(screenshot)   # BGR顺序，R是第三个
+    channel_data = [('Grey', gray), ('R', r_channel)]
+
+    all_detections = []   # 存储所有通道的检测结果（字典形式）
+
+    for label, ch in channel_data:
+        # 高斯模糊（抑制噪声，使梯度方向稳定）
+        blurred = cv2.GaussianBlur(ch, (5, 5), 0)
+
+        # 计算梯度
+        gx = cv2.Sobel(blurred, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(blurred, cv2.CV_32F, 0, 1, ksize=3)
+
+        # 方向内积响应
+        resp_x = cv2.filter2D(gx, -1, gx_t, borderType=cv2.BORDER_CONSTANT)
+        resp_y = cv2.filter2D(gy, -1, gy_t, borderType=cv2.BORDER_CONSTANT)
+        response = resp_x + resp_y
+
+        # 按该通道最大响应归一化
+        max_val = response.max()
+        if max_val <= 0:
+            continue
+        norm_response = response / max_val
+
+        # 阈值过滤
+        binary = (norm_response >= threshold).astype(np.uint8) * 255
+
+        # 查找轮廓
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < 10:   # 过滤小面积噪声
+                continue
+
+            x, y, w, h = cv2.boundingRect(cnt)
+            center_x = x + w // 2
+            center_y = y + h // 2
+
+            # 取该矩形区域内最大归一化响应作为得分
+            roi = norm_response[y:y+h, x:x+w]
+            score = roi.max()
+
+            # 用字典保存检测信息
+            all_detections.append({
+                'center': (center_x, center_y),
+                'score': score,
+                'label': label,
+                'bbox': (x, y, w, h)
+            })
+
+    # 按得分降序排序
+    all_detections.sort(key=lambda d: d['score'], reverse=True)
+
+    # 去重（基于中心距离的非极大值抑制）
+    kept_detections = []
+    for det in all_detections:
+        cx, cy = det['center']
+        duplicate = False
+        for kept in kept_detections:
+            kx, ky = kept['center']
+            if (cx - kx) ** 2 + (cy - ky) ** 2 < dedup_dist ** 2:
+                duplicate = True
+                break
+        if not duplicate:
+            kept_detections.append(det)
+
+    # ---------- 在原图上标记结果 ----------
+    marked_img = screenshot.copy()
+    for det in kept_detections:
+        x, y, w, h = det['bbox']
+        score = det['score']
+        label = det['label']
+        cv2.rectangle(marked_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        text = f'{label}:{score:.2f}'
+        cv2.putText(marked_img, text, (x, y - 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+    # 转换为要求的输出格式（元组列表）
+    results = [(det['center'][0], det['center'][1], det['score'], det['label']) for det in kept_detections]
+
+    return results, marked_img
+
+
+# EOF
