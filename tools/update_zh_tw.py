@@ -117,21 +117,52 @@ def prepare_patched_src():
                             'with open("_update_restart.sh", "w") as f:',
                             'with open("_update_restart.sh", "w", encoding="utf-8") as f:'
                         )
+                        # 自動適配解壓後可能存在單層子資料夾的情況
+                        old_extract_call = 'self._extract_archive(archive_path, unpack_dir)'
+                        new_extract_call = '''self._extract_archive(archive_path, unpack_dir)
+            # 自動檢測並適配單層巢狀目錄
+            try:
+                sub_items = [os.path.join(unpack_dir, item) for item in os.listdir(unpack_dir)]
+                if len(sub_items) == 1 and os.path.isdir(sub_items[0]):
+                    if os.path.exists(os.path.join(sub_items[0], os.path.basename(sys.argv[0]))):
+                        unpack_dir = sub_items[0]
+            except Exception:
+                pass'''
+                        tw_code_content = tw_code_content.replace(old_extract_call, new_extract_call)
+
+                        # 高強韌度 Windows 重啟覆蓋批次檔
                         new_script_block = '''script = f"""@echo off
 chcp 65001 >nul
-REM Waiting for main process exit
+cd /d "%~dp0"
+
+REM 強制結束可能殘留的舊程序並等待釋放檔案鎖
+taskkill /F /IM "{os.path.basename(sys.argv[0])}" >nul 2>&1
 timeout /t 2 /nobreak >nul
 
-REM Copy unpacked files
-xcopy /E /Y /Q "{unpack_dir}\\\\*" "."
+REM 帶重試機制的檔案覆蓋
+set RETRY_COUNT=0
+:COPY_LOOP
+xcopy /E /Y /Q "{unpack_dir}\\\\*" "." >nul 2>&1
+if errorlevel 1 (
+    set /a RETRY_COUNT+=1
+    if %RETRY_COUNT% leq 5 (
+        timeout /t 1 /nobreak >nul
+        taskkill /F /IM "{os.path.basename(sys.argv[0])}" >nul 2>&1
+        goto COPY_LOOP
+    ) else (
+        echo [錯誤] 更新檔案覆蓋失敗，請確認檔案未被其他程序佔用！
+        pause
+        exit /b 1
+    )
+)
 
-REM Restart main executable
+REM 啟動新版本程序
 start "" "{os.path.basename(sys.argv[0])}"
 
-REM Clean temporary update folder
+REM 清理臨時檔案
 rmdir /S /Q "__update_temp__"
 
-REM Delete restart script
+REM 刪除自身
 del "%~f0"
     """'''
                         tw_code_content, _ = re.subn(
