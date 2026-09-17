@@ -1,9 +1,9 @@
+
 from ppadb.client import Client as AdbClient
-from win10toast import ToastNotifier
+from utils import *
 from enum import Enum
 import os
 import subprocess
-from utils import *
 import random
 from threading import Thread,Event
 from pathlib import Path
@@ -519,7 +519,6 @@ def CutRoI(screenshot, roi):
     return main_img
 ##################################################################
 def Factory():
-    toaster = ToastNotifier()
     setting =  None
     quest = None
     runtimeContext = RuntimeContext()
@@ -1591,21 +1590,21 @@ def Factory():
             # 设置等级
             Sleep(1)
             scn = ScreenShot()
-            has_lv_1 = (CheckIf(scn,f"spellskill\skillLvl\lv1")) or (CheckIf(scn,f"spellskill\skillLvl\s_lv1"))
+            has_lv_1 = (CheckIf(scn,rf"spellskill\skillLvl\lv1")) or (CheckIf(scn,rf"spellskill\skillLvl\s_lv1"))
             if (not has_lv_1):
                 if (skilllvl>=2):
                     logger.error(_("错误: 设定了高于1级的技能, 但并未检测到技能等级.\n 使用默认技能."))
             else:
                 if skilllvl!=1:
-                    has_lv_x = (CheckIf(scn,f"spellskill\skillLvl\lv{skilllvl}")) or (CheckIf(scn,f"spellskill\skillLvl\s_lv{skilllvl}"))
+                    has_lv_x = (CheckIf(scn,rf"spellskill\skillLvl\lv{skilllvl}")) or (CheckIf(scn,rf"spellskill\skillLvl\s_lv{skilllvl}"))
                 else:
                     has_lv_x = has_lv_1
 
                 if not has_lv_x:
                     skilllvl = 1
                     logger.error(_("错误: 未检测到目标等级\n 使用1级技能."))
-                if not Press(CheckIf(scn,f"spellskill\skillLvl\lv{skilllvl}")):
-                    if not Press(CheckIf(scn,f"spellskill\skillLvl\s_lv{skilllvl}")):
+                if not Press(CheckIf(scn,rf"spellskill\skillLvl\lv{skilllvl}")):
+                    if not Press(CheckIf(scn,rf"spellskill\skillLvl\s_lv{skilllvl}")):
                         logger.error(_("错误: 我认为不可能发生这种情况. 请务必告诉我."))
 
             # 辅助技能
@@ -1623,7 +1622,7 @@ def Factory():
                 candidates,result_image = StateCombat_DetectArrow(CutRoI(scn,[[0,61,900,863]]))
                 
                 if candidates is not None:
-                    SaveImage(result_image)
+                    # SaveImage(result_image)
                     for index, (x, y, score, label) in enumerate(candidates):
                         if index >= 3: # 只点前三
                             break
@@ -1763,7 +1762,7 @@ def Factory():
                 targetPos = CheckIf_ReachPosition(scn,targetInfo)
             elif target in ['harken','Bharken']:
                 targetPos = CheckIf_harkenStair(scn,targetInfo)
-            elif target.startswith("stair"):
+            elif os.path.basename(os.path.normpath(target)).startswith("stair"):
                 logger.info(_("当前目标: 楼梯{a}".format(a=target)))
                 targetPos = CheckIf_throughStair(scn,targetInfo)
             else:
@@ -1806,7 +1805,7 @@ def Factory():
         return dungState
     def StateMapSearch(targetInfo):
         normalPlace = ["harken","chest","leaveDung","position","Bharken"]
-        target = targetInfo.target
+        target = os.path.basename(os.path.normpath(targetInfo.target))
         # 地图已经打开.
         map = ScreenShot()
 
@@ -1954,7 +1953,7 @@ def Factory():
         nonlocal runtimeContext
         runtimeContext.TASK_STEP_INDEX = 0
         def TargetPointComplete():
-            logger.info(f"任务点完成: {targetInfoList[0].target} {targetInfoList[0].roi}")
+            logger.info(f"任务点完成: {targetInfoList[0].target} {targetInfoList[0].roi if targetInfoList[0].target!='chest' else ''}")
             targetInfoList.pop(0)
             runtimeContext.TASK_STEP_INDEX += 1
 
@@ -3366,49 +3365,293 @@ def Factory():
                 total_time = 0
                 fish = 0
                 failed_fishing = 0
+                tick = 0
+                ################
+                fishinfo = {}
+                def CollectFishInfo(scn):
+                    nonlocal fishinfo
+                    vals_size = {
+                            "小": CheckHow(scn,"fishing/size_small"),
+                            "普通": CheckHow(scn,"fishing/size_average"),
+                            "大": CheckHow(scn,"fishing/size_large"),
+                            }
+                    vals_category = {
+                            "鲈鱼": CheckHow(scn,"fishing/鲈鱼", [[0,1100,900,150]]),
+                            "雅罗": CheckHow(scn,"fishing/雅罗", [[0,1100,900,150]]),
+                            "鲶鱼": CheckHow(scn,"fishing/鲶鱼", [[0,1100,900,150]]),
+                            "鳟鱼": CheckHow(scn,"fishing/鳟鱼", [[0,1100,900,150]]),
+                            "鳗鱼": CheckHow(scn,"fishing/鳗鱼", [[0,1100,900,150]]),
+                            "三文鱼": CheckHow(scn,"fishing/三文鱼", [[0,1100,900,150]]),
+                            "杂鱼": CheckHow(scn,"fishing/杂鱼", [[0,1100,900,150]]),
+                        }
+                    if vals_size[match_size:=max(vals_size,key=vals_size.get)] > 0.9:
+                        if vals_category[best := max(vals_category, key=vals_category.get)] > 0.9:
+                            logger.info(f"获得了{match_size}{best}!")
+                            fishinfo.setdefault(match_size, {}).setdefault(best, 0)
+                            fishinfo[match_size][best]+=1
+                        else:
+                            logger.info(f"某些无法判断的东西...")
+                            fishinfo.setdefault(match_size, {}).setdefault("未收录", 0)
+                            fishinfo[match_size]["未收录"]+=1
+                    ################       
+
+                    fish_order = list(vals_category.keys()) + ["未收录"]
+
+                    parts = []
+
+                    for fish in fish_order:
+                        for size in ("大", "普通", "小"):  # 普通在前，小在后
+                            count = fishinfo.get(size, {}).get(fish, 0)
+                            if count:
+                                parts.append(f"{size}{fish} {count}条")
+
+                    if parts:
+                        return ", ".join(parts) + "."
+                ################
                 while 1:
+                    tick += 1
                     if setting._FORCESTOPING.is_set():
                         break
 
                     scn = ScreenShot()
-                    if TryPressRetry(scn):
+                    if TryPressRetry(scn) or Press(CheckIf(scn,"totitle")):
                         logger.info("网络故障, 重试中......")
                         Sleep(1)
                         continue
 
                     if CheckIf(scn, "fishing/cast"):
+                        if CheckIf(scn,"fishing/nobait",[[530,1469,120,120]]):
+                            nobait = CheckHow(scn,"fishing/nobait",[[530,1469,120,120]])
+                            eightbait = CheckHow(scn,"fishing/8bait",[[530,1469,120,120]])
+                            if nobait > eightbait:
+                                logger.info("没有鱼饵了...")
+                                RestartableSequenceExecution(
+                                    lambda: FindCoordsOrElseExecuteFallbackAndWait("dungFlag",["fishing/quit",],1)
+                                    )
+                                RestartableSequenceExecution(
+                                    lambda: StateDungeon([TargetInfo("position","右上",[818,928])])
+                                    )
+                                def refillBait():
+                                    if CheckIf(ScreenShot(),"intoWorldMap"):
+                                        Press([50,1535])
+                                    FindCoordsOrElseExecuteFallbackAndWait("ItemList",[[860,1150]],1)
+                                    pos = FindCoordsOrElseExecuteFallbackAndWait("fishing/iconbait",[[135,1294],[660,1200]],1)
+                                    FindCoordsOrElseExecuteFallbackAndWait("whowillyougiveitto",["transfer",[pos[0]+750-111,pos[1]]],1)
+                                    pos = CheckIf(ScreenShot(),"fishing/baitbox")
+                                    for i in range(70):
+                                        Press(pos)
+                                        Sleep(0.5)
+                                    FindCoordsOrElseExecuteFallbackAndWait("Inn",["return",[1,1]],1)
+                                RestartableSequenceExecution(
+                                    lambda: refillBait()
+                                    )
+                                quest._EOT = [
+                                    ["press","DH",["EdgeOfTown",[1,1]],1],
+                                    ["press","DH-R6","input swipe 650 250 650 900",1]
+                                ]
+                                RestartableSequenceExecution(
+                                    lambda: StateEoT()
+                                    )
+                                RestartableSequenceExecution(
+                                    lambda: StateDungeon([TargetInfo("position","右上",[339,555])])
+                                    )
+                                RestartableSequenceExecution(
+                                    lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("fishing/startfishing",["mapFlag", "input swipe 450 900 450 600", [450,500]],1))
+                                    )
+                                logger.info("换鱼饵结束.")
+                                Sleep(10)
+
                         for i in range(5):
                             DeviceShell(f"input swipe 50 1200 850 1200 100")
                         for i in range(2):
                             DeviceShell(f"input swipe 850 1200 50 1200 100")
                         Sleep(1)
-                        DeviceShell(f"input swipe 400 1200 450 1250 2250")
                         logger.info("下杆!")
+                        DeviceShell(f"input swipe 400 1200 450 1250 4000")
                         t = time.time()
-                        Sleep(2)
+                        Sleep(10)
                         continue
 
                     if pos:=CheckIf(scn, "fishing/striking"):
-                        if time.time()-t>180:
-                            logger.info("3分钟了还没钓到, 重来吧.")
+                        if time.time()-t>300:
+                            logger.info("5分钟了还没钓到, 重来吧.")
                             failed_fishing += 1
                             Press(pos)
                             Sleep(5)
-                        DeviceShell(f"input swipe 450 700 450 50 100")
-                        Sleep(2.5) # 拉杆动画大约2秒动作和0.2秒冷却
+                        fishbobber, img = Fishing_DetectBobber(CutRoI(scn,[[250,500,400,600]]))
+                        # SaveImage(img)
+                        logger.debug(fishbobber)
+                        if fishbobber == []:
+                            logger.info("拉杆!")
+                            DeviceShell(f"input swipe 450 700 450 50 100")
+                            Sleep(3) # 拉杆动画大约2秒动作和0.2秒冷却
+                        else:
+                            if tick % 15 == 0:
+                                logger.info("等待着猎物...")
+                            Sleep(1)
                         continue
 
                     if Press(CheckIf(scn, "fishing/CloseFishInfo")):
                         fish += 1
                         total_time = total_time + time.time() - t
                         t = 0
-                        logger.info(f"已完成钓鱼{fish}次, 失败{failed_fishing}次.\n累计用时{time.time()-start_time:.2f}秒, 平均每条鱼用时{total_time/fish:.2f}秒.", summary = True)
+                        info = CollectFishInfo(scn)
+                        logger.info(f"已完成近端钓鱼{fish}次, 失败{failed_fishing}次.\n累计用时{time.time()-start_time:.2f}秒, 平均每条鱼用时{(time.time()-start_time)/fish:.2f}秒.\n{info}", summary = True)
                         SaveImage(scn=scn)
                         Sleep(5)
                         continue
 
-                    for i in range(20):
+                    Press([250,1200])
+                    for i in range(40):
                         DeviceShell(f"input swipe 250 1200 850 1200 100")
+            case "fishing2":
+                            start_time = time.time()
+                            t = time.time()
+                            total_time = 0
+                            fish = 0
+                            failed_fishing = 0
+                            tick = 0
+                            ################
+                            fishinfo = {}
+                            def CollectFishInfo(scn):
+                                nonlocal fishinfo
+                                vals_size = {
+                                        "小": CheckHow(scn,"fishing/size_small"),
+                                        "普通": CheckHow(scn,"fishing/size_average"),
+                                        "大": CheckHow(scn,"fishing/size_large"),
+                                        }
+                                vals_category = {
+                                        "鲈鱼": CheckHow(scn,"fishing/鲈鱼", [[0,1100,900,150]]),
+                                        "雅罗": CheckHow(scn,"fishing/雅罗", [[0,1100,900,150]]),
+                                        "鲶鱼": CheckHow(scn,"fishing/鲶鱼", [[0,1100,900,150]]),
+                                        "鳟鱼": CheckHow(scn,"fishing/鳟鱼", [[0,1100,900,150]]),
+                                        "鳗鱼": CheckHow(scn,"fishing/鳗鱼", [[0,1100,900,150]]),
+                                        "三文鱼": CheckHow(scn,"fishing/三文鱼", [[0,1100,900,150]]),
+                                        "杂鱼": CheckHow(scn,"fishing/杂鱼", [[0,1100,900,150]]),
+                                    }
+                                if vals_size[match_size:=max(vals_size,key=vals_size.get)] > 0.9:
+                                    if vals_category[best := max(vals_category, key=vals_category.get)] > 0.9:
+                                        logger.info(f"获得了{match_size}{best}!")
+                                        fishinfo.setdefault(match_size, {}).setdefault(best, 0)
+                                        fishinfo[match_size][best]+=1
+                                    else:
+                                        logger.info(f"某些无法判断的东西...")
+                                        fishinfo.setdefault(match_size, {}).setdefault("未收录", 0)
+                                        fishinfo[match_size]["未收录"]+=1
+                                ################       
+            
+                                fish_order = list(vals_category.keys()) + ["未收录"]
+            
+                                parts = []
+            
+                                for fish in fish_order:
+                                    for size in ("大", "普通", "小"):  # 普通在前，小在后
+                                        count = fishinfo.get(size, {}).get(fish, 0)
+                                        if count:
+                                            parts.append(f"{size}{fish} {count}条")
+            
+                                if parts:
+                                    return ", ".join(parts) + "."
+                            ################
+                            while 1:
+                                tick += 1
+                                if setting._FORCESTOPING.is_set():
+                                    break
+            
+                                scn = ScreenShot()
+                                if TryPressRetry(scn) or Press(CheckIf(scn,"totitle")):
+                                    logger.info("网络故障, 重试中......")
+                                    Sleep(1)
+                                    continue
+            
+                                if CheckIf(scn, "fishing/cast"):
+                                    if CheckIf(scn,"fishing/nobait",[[530,1469,120,120]]):
+                                        nobait = CheckHow(scn,"fishing/nobait",[[530,1469,120,120]])
+                                        eightbait = CheckHow(scn,"fishing/8bait",[[530,1469,120,120]])
+                                        if nobait > eightbait:
+                                            logger.info("没有鱼饵了...")
+                                            RestartableSequenceExecution(
+                                                lambda: FindCoordsOrElseExecuteFallbackAndWait("dungFlag",["fishing/quit",],1)
+                                                )
+                                            RestartableSequenceExecution(
+                                                lambda: StateDungeon([TargetInfo("position","右上",[818,928])])
+                                                )
+                                            def refillBait():
+                                                if CheckIf(ScreenShot(),"intoWorldMap"):
+                                                    Press([50,1535])
+                                                FindCoordsOrElseExecuteFallbackAndWait("ItemList",[[860,1150]],1)
+                                                pos = FindCoordsOrElseExecuteFallbackAndWait("fishing/iconbait",[[135,1294],[660,1200]],1)
+                                                FindCoordsOrElseExecuteFallbackAndWait("whowillyougiveitto",["transfer",[pos[0]+750-111,pos[1]]],1)
+                                                pos = CheckIf(ScreenShot(),"fishing/baitbox")
+                                                for i in range(70):
+                                                    Press(pos)
+                                                    Sleep(0.5)
+                                                FindCoordsOrElseExecuteFallbackAndWait("Inn",["return",[1,1]],1)
+                                            RestartableSequenceExecution(
+                                                lambda: refillBait()
+                                                )
+                                            quest._EOT = [
+                                                ["press","DH",["EdgeOfTown",[1,1]],1],
+                                                ["press","DH-R6","input swipe 650 250 650 900",1]
+                                            ]
+                                            RestartableSequenceExecution(
+                                                lambda: StateEoT()
+                                                )
+                                            RestartableSequenceExecution(
+                                                lambda: StateDungeon([TargetInfo("position","右上",[339,555])])
+                                                )
+                                            RestartableSequenceExecution(
+                                                lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("fishing/startfishing",["mapFlag", "input swipe 450 900 450 600", [450,500]],1))
+                                                )
+                                            logger.info("换鱼饵结束.")
+                                            Sleep(10)
+            
+                                    for i in range(5):
+                                        DeviceShell(f"input swipe 50 1200 850 1200 100")
+                                    for i in range(2):
+                                        DeviceShell(f"input swipe 850 1200 50 1200 100")
+                                    Sleep(1)
+                                    logger.info("下杆!")
+                                    DeviceShell(f"input swipe 400 1200 450 1250 2250")
+                                    t = time.time()
+                                    Sleep(10)
+                                    continue
+            
+                                if pos:=CheckIf(scn, "fishing/striking"):
+                                    if time.time()-t>300:
+                                        logger.info("5分钟了还没钓到, 重来吧.")
+                                        failed_fishing += 1
+                                        Press(pos)
+                                        Sleep(5)
+                                    fishbobber, img = Fishing_DetectBobber(CutRoI(scn,[[250,500,400,600]]))
+                                    # SaveImage(img)
+                                    logger.debug(fishbobber)
+                                    if fishbobber == []:
+                                        logger.info("拉杆!")
+                                        DeviceShell(f"input swipe 450 700 450 50 100")
+                                        Sleep(3) # 拉杆动画大约2秒动作和0.2秒冷却
+                                    else:
+                                        if tick % 15 == 0:
+                                            logger.info("等待着猎物...")
+                                        Sleep(1)
+                                    continue
+            
+                                if Press(CheckIf(scn, "fishing/CloseFishInfo")):
+                                    fish += 1
+                                    total_time = total_time + time.time() - t
+                                    t = 0
+                                    info = CollectFishInfo(scn)
+                                    logger.info(f"已完成远端钓鱼{fish}次, 失败{failed_fishing}次.\n累计用时{time.time()-start_time:.2f}秒, 平均每条鱼用时{(time.time()-start_time)/fish:.2f}秒.\n{info}", summary = True)
+                                    SaveImage(scn=scn)
+                                    Sleep(5)
+                                    continue
+            
+                                Press([250,1200])
+                                for i in range(40):
+                                    DeviceShell(f"input swipe 250 1200 850 1200 100")
+            case "test":
+                pass
+                
                     
         ##########################
         setting._FINISHINGCALLBACK()

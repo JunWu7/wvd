@@ -100,6 +100,7 @@ class AutoUpdater():
     def check_for_updates(self):
         """执行更新检查逻辑"""
         update_url = f"https://{self.github_user}.github.io/{self.github_repo}/release.json"
+        # logger.info(update_url)
         try:
             req = Request(update_url, headers={'Cache-Control': 'no-cache'})
             with urlopen(req, timeout=10) as response:
@@ -113,7 +114,7 @@ class AutoUpdater():
         except (URLError, ValueError, json.JSONDecodeError) as e:
             # 发生错误，同样通过队列报告。
             error_message = f"检查更新失败: {e}"
-            # logger.error(error_message) # 暂时把这个关掉 看看是否是多线程问题
+            logger.error(error_message) # 暂时把这个关掉 看看是否是多线程问题
             # self.msg_queue.put(('error', error_message))
 
     def download(self):
@@ -224,12 +225,6 @@ xcopy /E /Y /Q "{unpack_dir}\\*" "."
 
 REM 启动新版本程序
 start "" "{os.path.basename(sys.argv[0])}"
-
-REM 清理临时文件
-rmdir /S /Q "__update_temp__"
-
-REM 删除自身
-del "%~f0"
     """
             with open("_update_restart.bat", "w") as f:
                 f.write(script)
