@@ -167,7 +167,7 @@ class SkillConfigPanel(CollapsibleSection):
         self.default_row_data = {}
         
         # 常量
-        self.ROLE_LIST = CHAR_LIST
+        self.ROLE_DISPLAY_LIST = list(CHAR_DISPLAY_TO_ID.keys())
         self.SKILL_OPTIONS = [_("左上技能"), _("右上技能"), _("左下技能"), _("右下技能"), _("防御")]
         self.TARGET_OPTIONS = [_("左上角色"), _("中上角色"), _("右上角色"), _("左下角色"), _("右下角色"), _("中下角色"), _("不可用")]
         self.SKILL_LVL = [1, 2, 3, 4, 5, 6, 7]
@@ -270,10 +270,10 @@ class SkillConfigPanel(CollapsibleSection):
                     
                     # 设置配置值
                     role = setting.get('role_var', '')
-                    if role in self.ROLE_LIST:
-                        row_data['role_var'].set(role)
+                    if role in CHAR_LIST:
+                        row_data['role_var'].set(_(role))
                     else:
-                        row_data['role_var'].set(self.ROLE_LIST[0])
+                        row_data['role_var'].set(self.ROLE_DISPLAY_LIST[0])
                         
                     row_data['skill_var'].set(setting.get('skill_var', _("左上技能")))
                     row_data['target_var'].set(setting.get('target_var', _('低生命值')))
@@ -342,8 +342,10 @@ class SkillConfigPanel(CollapsibleSection):
             role_var.set(_("默认"))
             role_cb = ttk.Combobox(row_frame, textvariable=role_var, width=8, state="disabled")
         else:
-            role_var.set(self.ROLE_LIST[0])
-            role_cb = ttk.Combobox(row_frame, textvariable=role_var, values=self.ROLE_LIST, width=8, state="readonly")
+            role_var.set(self.ROLE_DISPLAY_LIST[0])
+            role_cb = ttk.Combobox(row_frame, textvariable=role_var,
+                           values=self.ROLE_DISPLAY_LIST,
+                           width=8, state="readonly")
         role_cb.grid(row=0, column=0, padx=(0, 5), sticky=tk.W)
 
         skill_cb = ttk.Combobox(row_frame, textvariable=skill_var, values=self.SKILL_OPTIONS, width=7, state="readonly")
@@ -426,7 +428,7 @@ class SkillConfigPanel(CollapsibleSection):
         # 只添加自定义行，不包含默认行
         for row in self.custom_rows_data:
             item = {
-                'role_var': row['role_var'].get(),
+                'role_var': CHAR_DISPLAY_TO_ID.get(row['role_var'].get(), row['role_var'].get()), 
                 'skill_var': row['skill_var'].get(),
                 'target_var': row['target_var'].get(),
                 'freq_var': row['freq_var'].get(),
@@ -480,6 +482,32 @@ def LoadConfig(specific = 'ALL'):
 
     return result_config
 ############################################
+class TipsDialog(tk.Toplevel):
+    """任务提示弹窗.
+
+    去掉了标题栏的默认关闭按钮: 标题栏的 X 和 Alt+F4 都走 WM_DELETE_WINDOW,
+    这里把它吞掉, 因此只能点"我了解了"关闭.
+    """
+    def __init__(self, parent, tips, title = None):
+        super().__init__(parent)
+        self.title(title or _("任务提示"))
+        self.resizable(False, False)
+        self.transient(parent)
+
+        # 用 Label 显示, 窗口随文本长度自适应; wraplength 控制过长行的折行宽度.
+        ttk.Label(self, text=tips, justify="left", wraplength=560).grid(row=0, column=0, padx=10, pady=(10, 6))
+
+        ttk.Button(self, text=_("我了解了"), command=self.destroy).grid(row=1, column=0, pady=(0, 10))
+
+        # 删除默认关闭按钮: 标题栏的 X 与 Alt+F4 都被忽略.
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        self.update_idletasks()
+        self.geometry(f"+{parent.winfo_rootx() + (parent.winfo_width()  - self.winfo_width())  // 2}"
+                      f"+{parent.winfo_rooty() + (parent.winfo_height() - self.winfo_height()) // 2}")
+        self.grab_set()
+        self.focus_set()
+############################################
 class ConfigPanelApp(tk.Toplevel):
     def __init__(self, master_controller, version, msg_queue):
         self.URL = "https://github.com/arnold2957/wvd"
@@ -531,11 +559,13 @@ class ConfigPanelApp(tk.Toplevel):
 
         # --- 创建组件 ---
         self.create_widgets()
-        self.updateACTIVE_REST_state() # 初始化时更新旅店住宿entry.
+        self.updateACTIVE_REST_state()
+        self.updateRE_ASSEMBLE_PARTY_state()
         
 
         logger.info("**********************************")
         logger.info(_("当前版本: %s") % version)
+        logger.info(_("当前游戏语言: {0}".format(LANGUAGE_GAME)))
         logger.info(self.INTRODUCTION, summary=True)  # 修改：使用 summary=True 替代 extra={"summary": True}
         logger.info("**********************************")
         
@@ -679,7 +709,10 @@ class ConfigPanelApp(tk.Toplevel):
                     if emu_path.endswith(r"MuMu Player 12/shell/MuMuPlayer.exe"):
                         path_check = True
                     if not path_check:
-                        logger.error("\n\n警告: 设置的模拟器路径可能不正确.\n如果你遇到无法启动模拟器, 请尝试重新设置路径.\n\n")
+                        messagebox.showwarning(
+                            _("警告"),
+                            _("设置的模拟器路径可能不正确。\n如果你遇到无法启动模拟器，请尝试重新设置路径。")
+                        )
 
         self.adb_path_change_button = ttk.Button(
             frame_row, text=_("修改"), command=selectADB_PATH, width=5
@@ -730,8 +763,8 @@ class ConfigPanelApp(tk.Toplevel):
                                         '%P'),
                                         width=15)
         self.adb_port_entry.grid(row=0, column=3)
-        self.button_save_adb_port = ttk.Button(frame_row, text=_("保存"), command=self.save_config, width=5)
-        self.button_save_adb_port.grid(row=0, column=4)
+        self.adb_port_entry.bind("<FocusOut>", lambda e: self.save_config())
+        self.adb_port_entry.bind("<Return>", lambda e: self.save_config())
         row_counter += 1
         frame_row = ttk.Frame(container)
         frame_row.grid(row=row_counter, column=0, sticky="ew", pady=2)
@@ -740,9 +773,55 @@ class ConfigPanelApp(tk.Toplevel):
         self.emu_index_entry = ttk.Entry(frame_row, textvariable=self.EMU_INDEX, validate="key",
                                          validatecommand=(vcmd_non_neg, '%P'), width=5)
         self.emu_index_entry.grid(row=0, column=1)
-        self.button_save_emu_index = ttk.Button(frame_row, text=_("保存"), command=self.save_config, width=5)
-        self.button_save_emu_index.grid(row=0, column=2)
+        self.emu_index_entry.bind("<FocusOut>", lambda e: self.save_config())
+        self.emu_index_entry.bind("<Return>", lambda e: self.save_config())
 
+        # --- GUI语言 ---
+        row_counter += 1
+        frame_row = ttk.Frame(container)
+        frame_row.grid(row=row_counter, column=0, sticky="ew", pady=2)
+        
+        ttk.Label(frame_row, text=_("本脚本的语言:")).grid(row=0, column=0, sticky=tk.W, pady=5)
+        
+        self.lang_gui_combobox = ttk.Combobox(
+            frame_row, 
+            textvariable=self.LANGUAGE_SCRIPT, 
+            values=["zh_CN", "en_US"], 
+            state="readonly", 
+            width=10
+        )
+        self.lang_gui_combobox.grid(row=0, column=1, padx=(0, 5), sticky=tk.W)
+        
+        def on_gui_lang_change(event=None):
+            self.save_config()
+            from tkinter import messagebox
+            messagebox.showinfo(_("提示"), _("GUI语言设置已保存，请重启脚本后生效。"))
+
+        self.lang_gui_combobox.bind("<<ComboboxSelected>>", on_gui_lang_change)
+
+        # --- 游戏语言 ---
+        row_counter += 1
+        frame_row = ttk.Frame(container)
+        frame_row.grid(row=row_counter, column=0, sticky="ew", pady=2)
+        
+        ttk.Label(frame_row, text=_("游戏内的语言:")).grid(row=0, column=0, sticky=tk.W, pady=5)
+        
+        self.lang_game_combobox = ttk.Combobox(
+            frame_row, 
+            textvariable=self.LANGUAGE_GAME, 
+            values=["zh_CN", "en_US"], # 请根据你脚本实际支持的游戏语言修改这里的值
+            state="readonly", 
+            width=10
+        )
+        self.lang_game_combobox.grid(row=0, column=1, padx=(0, 5), sticky=tk.W)
+        
+        def on_game_lang_change(event=None):
+            self.save_config()
+            from tkinter import messagebox
+            # 游戏语言通常影响OCR或图像识别，可能不需要重启GUI，但需要提醒用户
+            messagebox.showinfo(_("提示"), _("游戏语言设置已保存。\n请确保模拟器内的游戏语言与此设置一致，建议重启脚本以加载对应的识别库。"))
+
+        self.lang_game_combobox.bind("<<ComboboxSelected>>", on_game_lang_change)
 
         # ==========================================
         # 分组 2: 目标
@@ -933,6 +1012,12 @@ class ConfigPanelApp(tk.Toplevel):
         self.recover_when_beginning_check = ttk.Checkbutton(row_recover, text=_("在进入地下城时进行恢复."), variable=self.RECOVER_WHEN_BEGINNING, command=self.save_config, style="Default.TCheckbutton")
         self.recover_when_beginning_check.grid(row=0, column=0)
 
+        row_counter += 1
+        row_recover = tk.Frame(container)
+        row_recover.grid(row=row_counter, column=0, columnspan=2, sticky=tk.W, pady=2)
+        self.recover_after_rest_check = ttk.Checkbutton(row_recover, text=_("在住宿后首次进入地下城时进行恢复."), variable=self.RECOVER_AFTER_REST, command=self.save_config, style="Default.TCheckbutton")
+        self.recover_after_rest_check.grid(row=0, column=0, sticky=tk.W)
+
         # 休息设置
         row_counter += 1
         frame_row = ttk.Frame(container)
@@ -948,8 +1033,8 @@ class ConfigPanelApp(tk.Toplevel):
                                              validatecommand=(vcmd_non_neg, '%P'), width=2)
         self.rest_intervel_entry.grid(row=0, column=2)
         ttk.Label(frame_row, text=_("次后休息.")).grid(row=0, column=3, sticky=tk.W, pady=5)
-        self.button_save_rest_intervel = ttk.Button(frame_row, text=_("保存"), command=self.save_config, width=4)
-        self.button_save_rest_intervel.grid(row=0, column=4)
+        self.rest_intervel_entry.bind("<FocusOut>", lambda e: self.save_config())
+        self.rest_intervel_entry.bind("<Return>", lambda e: self.save_config())
 
         # 善恶设置
         row_counter += 1
@@ -981,18 +1066,51 @@ class ConfigPanelApp(tk.Toplevel):
         ttk.Label(frame_row, textvariable=self.KARMA_ADJUST).grid(row=0, column=3, sticky=tk.W, pady=5)
         ttk.Label(frame_row, text=_("点")).grid(row=0, column=4, sticky=tk.W, pady=5)
 
-        # 每6小时重置队伍
+# 每X小时重置队伍
         row_counter += 1
         frame_row = ttk.Frame(container)
         frame_row.grid(row=row_counter, column=0, sticky="ew", pady=2)
+
+        def clamp_reassemble_interval(event=None):
+            """失焦或回车时，把 RE_ASSEMBLE_PARTY_INTERVAL 自动钳制到 [1, 12]。"""
+            try:
+                value = int(self.RE_ASSEMBLE_PARTY_INTERVAL.get())
+            except (tk.TclError, ValueError):
+                value = 6  # 输入为空或非法时回退到默认值
+            new_value = max(1, min(12, value))
+            if new_value != value:
+                logger.error(_("时长设置超过范围, 自动调整到合理区间."))
+            self.RE_ASSEMBLE_PARTY_INTERVAL.set(new_value)
+            self.save_config()
+
+        def reassemble_checkcommand():
+            self.updateRE_ASSEMBLE_PARTY_state()
+            self.save_config()
+
         self.reassemble_party_check = ttk.Checkbutton(
             frame_row,
             variable=self.RE_ASSEMBLE_PARTY,
-            text=_("每6个小时重新召集酒馆第一个队伍\n以便清理背包和调整站位"),
-            command=self.save_config,
+            text=_("启用定时重置队伍"),
+            command=reassemble_checkcommand,
             style="Default.TCheckbutton"
         )
         self.reassemble_party_check.grid(row=0, column=0, sticky=tk.W)
+
+        ttk.Label(frame_row, text=_(" | 每")).grid(row=0, column=1, sticky=tk.W, pady=5)
+
+        self.reassemble_interval_entry = ttk.Entry(
+            frame_row,
+            textvariable=self.RE_ASSEMBLE_PARTY_INTERVAL,
+            width=2
+        )
+        self.reassemble_interval_entry.grid(row=0, column=2)
+        self.reassemble_interval_entry.bind("<FocusOut>", clamp_reassemble_interval)
+        self.reassemble_interval_entry.bind("<Return>", clamp_reassemble_interval)
+
+        ttk.Label(
+            frame_row,
+            text=_("小时重新召集酒馆第一个队伍\n以便清理背包和调整站位")
+        ).grid(row=0, column=3, sticky=tk.W, pady=5)
 
         # ==========================================
         # 分组 4: 战斗
@@ -1195,6 +1313,7 @@ class ConfigPanelApp(tk.Toplevel):
                 return
             if tip := LoadQuest(task_name)._TIPS:
                 logger.info(f"\n\n########### TIPS #############\n\n{tip}\n\n##############################")
+                TipsDialog(self, tip)
         def update_combat_strategy_combobox_values():
             if not hasattr(self, 'task_point_comboboxes') or not self.task_point_comboboxes:
                 return
@@ -1459,17 +1578,45 @@ class ConfigPanelApp(tk.Toplevel):
         container = self.section_advanced.content_frame
         row_counter = 0
 
-        # 1. 自动要钱
+        # 1. 0火
+        # 挖矿
+        frame_row = ttk.Frame(container)
+        frame_row.grid(row=row_counter, column=0, sticky="ew", pady=2)
+        self.active_digging = ttk.Checkbutton(
+            frame_row,
+            variable=self.ACTIVE_DIGGING,
+            text=_("当没有再起之火的时候, 尝试挖矿."),
+            command=self.save_config,
+            style="Default.TCheckbutton"
+        )
+        self.active_digging.grid(row=0, column=0, sticky=tk.W)
+
+
+        # 刷钱
+        row_counter += 1
         frame_row = ttk.Frame(container)
         frame_row.grid(row=row_counter, column=0, sticky="ew", pady=2)
         self.active_beg_money = ttk.Checkbutton(
             frame_row,
             variable=self.ACTIVE_BEG_MONEY,
-            text=_("没有火的时候自动找王女要钱"),
+            text=_("当没有再起之火的时候, 尝试刷钱."),
             command=self.save_config, # 如果这里需要特定逻辑，可以改回 checkcommand
             style="Default.TCheckbutton"
         )
         self.active_beg_money.grid(row=0, column=0, sticky=tk.W)
+
+        # 钓鱼
+        row_counter += 1
+        frame_row = ttk.Frame(container)
+        frame_row.grid(row=row_counter, column=0, sticky="ew", pady=2)
+        self.active_fishing = ttk.Checkbutton(
+            frame_row,
+            variable=self.ACTIVE_FISHING,
+            text=_("当没有再起之火的时候, 尝试钓鱼."),
+            command=self.save_config,
+            style="Default.TCheckbutton"
+        )
+        self.active_fishing.grid(row=0, column=0, sticky=tk.W)
 
         # 2. 豪华房
         row_counter += 1
@@ -1539,6 +1686,7 @@ class ConfigPanelApp(tk.Toplevel):
         # 5. 最大尝试次数
         def validate_focusout(P,limit,w):
             if P == "" or (P.isdigit() and int(P) >= int(limit)):
+                self.save_config()
                 return True
             else:
                 logger.info(_("尝试次数不能低于{a}次.".format(a=limit)))
@@ -1557,8 +1705,6 @@ class ConfigPanelApp(tk.Toplevel):
             width=3)
         self.max_try_limit_entry.grid(row=0, column=0)
         self.restart_game_label = ttk.Label(frame_row, text=_("次定位失败后重启游戏.")).grid(row=0, column=1, sticky=tk.W, pady=5)
-        self.button_save_max_try_limit = ttk.Button(frame_row, text=_("保存"), command=self.save_config, width=5)
-        self.button_save_max_try_limit.grid(row=0, column=2)
 
         row_counter += 1
         frame_row = ttk.Frame(container)
@@ -1572,9 +1718,6 @@ class ConfigPanelApp(tk.Toplevel):
             width=3)
         self.max_crash_limit_entry.grid(row=0, column=0)
         self.restart_emu_label = ttk.Label(frame_row, text=_("次重启游戏后重启模拟器.")).grid(row=0, column=1, sticky=tk.W, pady=5)
-        self.button_save_max_crash_limit = ttk.Button(frame_row, text=_("保存"), command=self.save_config, width=5)
-        self.button_save_max_crash_limit.grid(row=0, column=2)
-        
 
         ###################################################################
         # 分割线
@@ -1661,10 +1804,14 @@ class ConfigPanelApp(tk.Toplevel):
     def updateACTIVE_REST_state(self):
         if self.ACTIVE_REST.get():
             self.rest_intervel_entry.config(state="normal")
-            self.button_save_rest_intervel.config(state="normal")
         else:
             self.rest_intervel_entry.config(state="disable")
-            self.button_save_rest_intervel.config(state="disable")
+
+    def updateRE_ASSEMBLE_PARTY_state(self):
+        if self.RE_ASSEMBLE_PARTY.get():
+            self.reassemble_interval_entry.config(state="normal")
+        else:
+            self.reassemble_interval_entry.config(state="disable")
 
     def set_controls_state(self, state):
         Button_and_Entry = [
@@ -1674,9 +1821,9 @@ class ConfigPanelApp(tk.Toplevel):
             self.skip_recover_check,
             self.skip_chest_recover_check,
             self.recover_when_beginning_check,
+            self.recover_after_rest_check,
             self.active_rest_check,
             self.rest_intervel_entry,
-            self.button_save_rest_intervel,
             self.karma_adjust_combobox,
             self.adb_port_entry,
             self.emu_index_entry,
@@ -1684,21 +1831,21 @@ class ConfigPanelApp(tk.Toplevel):
             self.active_beautiful_ore,
             self.active_royalsuite_rest,
             self.active_beg_money,
+            self.active_digging,
+            self.active_fishing,
             self.task_specific_config_check,
-            self.button_save_adb_port,
-            self.button_save_emu_index,
             self.delete_task_specific_config_button,
             self.active_csc,
             self.bypass_the_wall,
             self.max_try_limit_entry,
-            self.button_save_max_try_limit,
             self.max_crash_limit_entry,
-            self.button_save_max_crash_limit,
             self.official_org_website_2,
             self.official_org_website_1,
             self.AM_switch,
             self.farm_target_category_combo,
             self.reassemble_party_check,
+            self.lang_game_combobox,
+            self.lang_gui_combobox,
         ]
 
         if state == tk.DISABLED:
@@ -1743,12 +1890,21 @@ class ConfigPanelApp(tk.Toplevel):
 
         self.quest_active = False
 
-    def turn_to_7000G(self):
-        self.summary_log_display.config(bg="#F4C6DB" )
+    def turn_to_quest(self, target):
+        """任务切换后在界面上显示提示."""
+        # 各任务的提示配色与文案. text 为 None 表示只改颜色, 不显示额外文案.
+        switch_notice = {
+            "7000G":    ("#F4C6DB", _("你的队伍已经耗尽了所有的再起之火.\n在耗尽再起之火前,\n你的队伍已经完成了如下了不起的壮举:\n\n%s\n\n不过没关系, 至少, 你还可以找公主要钱.\n\n赞美公主殿下!\n")),
+            "fishing":  ("#66ffcc", _("你的队伍已经耗尽了所有的再起之火.\n在耗尽再起之火前,\n你的队伍已经完成了如下了不起的壮举:\n\n%s\n\n不过没关系, 至少, 你还可以去钓鱼.\n\n事已至此, 先钓鱼吧.\n")),
+            "ffxi-org": ("#fff0cd", _("你的队伍已经耗尽了所有的再起之火.\n在耗尽再起之火前,\n你的队伍已经完成了如下了不起的壮举:\n\n%s\n\n不过没关系, 至少, 你还可以去挖矿.\n\n只要能有全改, 管他什么方法呢.\n")),
+            "default":  ("#66ccff", None),
+        }
+        bg, text_template = switch_notice.get(target, switch_notice["default"])
+        self.summary_log_display.config(bg=bg)
+        if text_template is None:
+            return
         self.main_frame.grid_remove()
         summary = self.summary_log_display.get("1.0", "end-1c")
         if self.INTRODUCTION in summary:
             summary = _("唔, 看起来一次成功的地下城都没有完成.")
-        text = _("你的队伍已经耗尽了所有的再起之火.\n在耗尽再起之火前,\n你的队伍已经完成了如下了不起的壮举:\n\n%s\n\n不过没关系, 至少, 你还可以找公主要钱.\n\n赞美公主殿下!\n") % summary
-        turn_to_7000G_label = ttk.Label(self, text = text)
-        turn_to_7000G_label.grid(row=0, column=0,)
+        ttk.Label(self, text = text_template % summary).grid(row=0, column=0,)

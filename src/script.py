@@ -42,7 +42,8 @@ CONFIG_VAR_LIST = [
                                                                         "skill_settings": []
                                                                     },]],
             ["GENERAL",   "DEFAULT_OVERALL_STRATEGY",               tk.StringVar, _("全自动战斗")],
-            ["GENERAL",   "LANGUAGE",                               tk.StringVar, "zh_CN"],
+            ["GENERAL",   "LANGUAGE_SCRIPT",                        tk.StringVar, "zh_CN"],
+            ["GENERAL",   "LANGUAGE_GAME",                          tk.StringVar, "en_US"],
             ["GENERAL",   "WEBSITE_ORG_TIME",                       tk.StringVar, None],
             ["GENERAL",   "AM_REFRESH_TIME",                        tk.StringVar, None],
 
@@ -52,17 +53,21 @@ CONFIG_VAR_LIST = [
             ["TEMPLATE",   "DO_COMBAT_RECOVER",                     tk.BooleanVar, True],
             ["TEMPLATE",   "DO_CHEST_RECOVER",                      tk.BooleanVar, True],
             ["TEMPLATE",   "RECOVER_WHEN_BEGINNING",                tk.BooleanVar, False],
+            ["TEMPLATE",   "RECOVER_AFTER_REST",                    tk.BooleanVar, False],
             ["TEMPLATE",   "ACTIVE_REST",                           tk.BooleanVar, True],
             ["TEMPLATE",   "ACTIVE_ROYALSUITE_REST",                tk.BooleanVar, False],
             ["TEMPLATE",   "ACTIVE_TRIUMPH",                        tk.BooleanVar, False],
             ["TEMPLATE",   "ACTIVE_BEAUTIFUL_ORE",                  tk.BooleanVar, False],
-            ["TEMPLATE",   "ACTIVE_BEG_MONEY",                      tk.BooleanVar, True],
+            ["TEMPLATE",   "ACTIVE_FISHING",                        tk.BooleanVar, False],
+            ["TEMPLATE",   "ACTIVE_DIGGING",                        tk.BooleanVar, False],
+            ["TEMPLATE",   "ACTIVE_BEG_MONEY",                      tk.BooleanVar, False],
             ["TEMPLATE",   "MAX_TRY_LIMIT",                         tk.IntVar,     25],
             ["TEMPLATE",   "MAX_CRASH_LIMIT",                       tk.IntVar,     10],
             ["TEMPLATE",   "REST_INTERVEL",                         tk.IntVar,     1],
             ["TEMPLATE",   "ACTIVE_CSC",                            tk.BooleanVar, True],
             ["TEMPLATE",   "BYPASS_THE_WALL",                       tk.BooleanVar, False],
             ["TEMPLATE",   "RE_ASSEMBLE_PARTY",                     tk.BooleanVar, False],
+            ["TEMPLATE",   "RE_ASSEMBLE_PARTY_INTERVAL",            tk.IntVar,     6],
             ]
 class FarmConfig:
     for attr_name, var_type, var_config_name, var_default_value in CONFIG_VAR_LIST:
@@ -99,10 +104,12 @@ class RuntimeContext:
     _MAXRETRYLIMIT = 20
     _ACTIVESPELLSEQUENCE = None
     _RECOVERAFTERREZ = False
+    NEED_RECOVER_WHEN_REST = False
     _ZOOMWORLDMAP = False
     _CRASHCOUNTER = 0
     _IMPORTANTINFO = ""
     _RESUMEAVAILABLE = False
+    _RESUMERE_TRY_COUNTER = 0 # 连续点击resume的次数, 多次点击会重启游戏.
     _BYPASSAFTERRESTART = True
     CURRENT_STRATEGY = {}
     NEED_RECOVER_WHEN_BEGINNING = True
@@ -117,6 +124,8 @@ class FarmQuest:
     _SPECIALDIALOGOPTION = None
     _SPECIALDIALOGOPTION_CALLBACK = None
     _SPECIALFORCESTOPINGSYMBOL = None
+    _SPECIALJUNK = None
+    _SPECIALJUNK_CALLBACK = None
     _TYPE = None
     _RTT = None # Return To Town, 回程时执行的流程
     _TIPS = None
@@ -694,8 +703,11 @@ def Factory():
 
                 Sleep(1)
 
-    def _check(screenImage, template, roi = None, outputMatchResult = False):
+    def _check(screenImage, template, roi = None, outputMatchResult = False, shortPathOfTarget = None):
         screenshot = screenImage.copy()
+        if (screenshot is None) or (screenshot.size == 0) or (bool(np.all(screenshot == screenshot[0, 0]))):
+            logger.debug(_("截图数据无效"))
+            return None, 0
         pos = None
         search_area = CutRoI(screenshot, roi)
         try:
@@ -706,14 +718,14 @@ def Factory():
                 if isinstance(e, (cv2.error)):
                     logger.info(_("cv2异常."))
                     # SaveImage(screenshot,"cv2异常")
-                    return None
+                    return None, 0
 
         underscore, max_val, underscore, max_loc = cv2.minMaxLoc(result)
 
         if outputMatchResult:
-            SaveImage(search_area,"origin.png")
-            cv2.rectangle(search_area, max_loc, (max_loc[0] + template.shape[1], max_loc[1] + template.shape[0]), (0, 255, 0), 2)
-            SaveImage(search_area,"matched.png")
+            SaveImage(search_area,prefix = f"check_origin_{shortPathOfTarget}")
+            cv2.rectangle(search_area, max_loc, (max_loc[0] + template.shape[1], max_loc[1] + template.shape[0]), (0, 255, 0), 1)
+            SaveImage(search_area,prefix = f"check_matched_{shortPathOfTarget}")
 
         if roi is None or len(roi) == 0:
             pos=[max_loc[0] + template.shape[1]//2,
@@ -723,7 +735,7 @@ def Factory():
                  roi[0][1] + max_loc[1] + template.shape[0]//2]
         return pos,max_val
     def CheckIf(screenImage, shortPathOfTarget, roi = None, outputMatchResult = False):
-        pos, max_val = _check(screenImage, LoadTemplateImage(shortPathOfTarget), roi, outputMatchResult)
+        pos, max_val = _check(screenImage, LoadTemplateImage(shortPathOfTarget), roi, outputMatchResult,shortPathOfTarget)
 
         if max_val < 0.8:
             logger.debug(_("匹配失败: {a}的匹配程度为{b:.2f}%, 不足阈值.".format(a=shortPathOfTarget, b=max_val*100)))
@@ -732,7 +744,7 @@ def Factory():
             logger.debug(_("匹配成功: {a}的匹配程度为{b:.2f}%, 位于{c}.".format(a=shortPathOfTarget, b=max_val*100,c=pos)))
             return pos
     def CheckHow(screenImage, shortPathOfTarget, roi = None, outputMatchResult = False):
-        pos, max_val = _check(screenImage, LoadTemplateImage(shortPathOfTarget), roi, outputMatchResult)
+        pos, max_val = _check(screenImage, LoadTemplateImage(shortPathOfTarget), roi, outputMatchResult,shortPathOfTarget)
 
         logger.debug(_("匹配检测: {a}的匹配程度为{b:.2f}%, 位于{c}.".format(a=shortPathOfTarget,b=max_val*100, c=pos)))
         return max_val
@@ -860,7 +872,118 @@ def Factory():
                 logger.info(_("哈肯搜索, 已找到哈肯."))
                 return pos
             return None
-            
+
+    def CheckFloorName(screenImage, template_name, errorThreshold=0.075):
+        """
+        检查 screen 固定区域(150, 65, 600, 50)的楼层名是否与 template 匹配。
+        - template 尺寸必须与 RoI 一致(600x50), 否则直接跳过。
+        - 对每个模板做两次比较(取误差率较小者):
+            * 缩放前: 模板原图 -> 灰度 -> Otsu 二值化 -> 与 RoI 逐像素比较。
+            * 缩放后: 模板宽度 600->613(高度不变) -> 左删6列、右删7列
+                    -> 灰度 -> Otsu 二值化 -> 与 RoI 逐像素比较。
+        - 误差率 <= errorThreshold(默认 7.5%) 判定通过。
+        - template_name 可以是 str, 也可以是 [str]; 列表时匹配任一即通过。
+        """
+        screenshot = screenImage.copy()
+        if (screenshot is None) or (screenshot.size == 0) or (bool(np.all(screenshot == screenshot[0, 0]))):
+            logger.error(_("截图数据无效, 跳过楼层检测."))
+            return True
+
+        # 固定 RoI: x=150, y=65, w=600, h=50
+        search_area = CutRoI(screenshot, [[150, 65, 600, 50]])
+
+        # 统一成列表处理
+        if isinstance(template_name, str):
+            template_names = [template_name]
+        else:
+            template_names = list(template_name)
+
+        if not template_names:
+            logger.error(_("模板名列表为空, 跳过楼层检测."))
+            return True
+
+        # 灰度化 RoI(只需一次)
+        screen_gray = cv2.cvtColor(search_area, cv2.COLOR_BGR2GRAY) if search_area.ndim == 3 else search_area
+
+        # 二值化 RoI(Otsu 自动阈值, 只需一次)
+        not_use, screen_bin = cv2.threshold(screen_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+        # ---- 缩放参数 ----
+        NEW_WIDTH = 613             # 放大后的宽度
+        CROP_LEFT = 6               # 左边删掉的列数
+        CROP_RIGHT = 7              # 右边删掉的列数
+
+        best_rate = 1.0
+        best_name = None
+        best_stage = None           # "缩放前" 或 "缩放后"
+
+        for name in template_names:
+            template = LoadTemplateImage(name)
+
+            # template 尺寸必须与 RoI 一致
+            if template is None or search_area.shape[:2] != template.shape[:2]:
+                logger.error(_("模板[{n}]尺寸与RoI不一致: RoI={a}, template={b}, 跳过该模板".format(
+                    n=name,
+                    a=search_area.shape[:2],
+                    b=(template.shape[:2] if template is not None else None))))
+                continue
+
+            # ---------- 第一次比较: 缩放前 ----------
+            template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY) if template.ndim == 3 else template
+            not_use, template_bin = cv2.threshold(template_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+            h = min(screen_bin.shape[0], template_bin.shape[0])
+            w = min(screen_bin.shape[1], template_bin.shape[1])
+            a = screen_bin[:h, :w]
+            b = template_bin[:h, :w]
+            rate_before = int(np.count_nonzero(a != b)) / a.size
+
+            # ---------- 第二次比较: 缩放后 ----------
+            th, tw = template.shape[:2]
+            scaled = cv2.resize(template, (NEW_WIDTH, th), interpolation=cv2.INTER_LINEAR)
+            scaled = scaled[:, CROP_LEFT:NEW_WIDTH - CROP_RIGHT]      # 左删6、右删7 -> 600 宽
+            scaled_gray = cv2.cvtColor(scaled, cv2.COLOR_BGR2GRAY) if scaled.ndim == 3 else scaled
+            not_use, scaled_bin = cv2.threshold(scaled_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+            h2 = min(screen_bin.shape[0], scaled_bin.shape[0])
+            w2 = min(screen_bin.shape[1], scaled_bin.shape[1])
+            a2 = screen_bin[:h2, :w2]
+            b2 = scaled_bin[:h2, :w2]
+            rate_after = int(np.count_nonzero(a2 != b2)) / a2.size
+
+            # 取两次中误差更小的
+            if rate_after < rate_before:
+                name_best_rate = rate_after
+                name_best_stage = "缩放后"
+            else:
+                name_best_rate = rate_before
+                name_best_stage = "缩放前"
+
+            # 记录全局最佳(便于失败时打日志)
+            if name_best_rate < best_rate:
+                best_rate = name_best_rate
+                best_name = name
+                best_stage = name_best_stage
+
+            # 只要有一个模板通过即可
+            if name_best_rate <= errorThreshold:
+                logger.debug(_("楼层名匹配成功: 模板[{n}], 阶段[{s}], 错误率{r:.2f}%.".format(
+                    n=name, s=name_best_stage, r=name_best_rate * 100)))
+                return True
+
+        # 全部未通过
+        if best_name is None:
+            logger.info(_("楼层名匹配失败: 所有模板均因尺寸不一致被跳过."))
+        else:
+            logger.info(_("楼层名匹配失败: 最佳模板[{n}], 阶段[{s}], 错误率{r:.2f}%, 超过阈值{c:.0f}%.".format(
+                n=best_name,
+                s=best_stage,
+                r=best_rate * 100,
+                c=errorThreshold * 100)))
+            SaveImage(search_area, prefix="failed_floor_check")
+            SaveImage(screenshot, prefix="failed_floor_check_full")
+
+        return False
     def CheckIf_fastForwardOff(screenImage):
         position = [240,1490]
         template =  LoadTemplateImage(f"fastforward_off")
@@ -908,72 +1031,73 @@ def Factory():
         time_str = datetime.now().strftime("%Y%m%d-%H%M%S") 
         runtimeContext._IMPORTANTINFO = " {a} {b}\n{c}".format(a = time_str, b=str, c=runtimeContext._IMPORTANTINFO)
     ##################################################################
-    def FindCoordsOrElseExecuteFallbackAndWait(targetPattern, fallback,waitTime):
-        # fallback可以是坐标[x,y]或者字符串. 当为字符串的时候, 视为图片地址
-        def pressTarget(target):
-            if target.lower() == "return":
-                PressReturn()
-            elif target.startswith("input swipe"):
-                DeviceShell(target)
-            else:
-                Press(CheckIf(scn, target))
-                Sleep(0.2)
-        def checkPattern(scn, pattern):
-            if pattern.startswith("combatActive"):
-                return StateCombatCheck(scn)
-            else:
-                return CheckIf(scn,pattern)
+    def _is_coord(x):
+        return (isinstance(x, (list, tuple))
+                and len(x) == 2
+                and all(isinstance(v, (int, float)) for v in x))
+    def FindCoordsOrElseExecuteFallbackAndWait(targetPattern, fallback, waitTime):
+        for not_used in range(setting.MAX_TRY_LIMIT):
+            if setting._FORCESTOPING.is_set():
+                return None
+            
+            scn = ScreenShot()
 
-        while True:
-            for underscore in range(setting.MAX_TRY_LIMIT):
-                if setting._FORCESTOPING.is_set():
-                    return None
-                scn = ScreenShot()
-                if isinstance(targetPattern, (list, tuple)):
-                    for pattern in targetPattern:
-                        if p:=checkPattern(scn, pattern):
-                            return p
+            # FindCoords
+            patterns = targetPattern if isinstance(targetPattern, (list, tuple)) else (targetPattern,)
+            for pattern in patterns:
+                if pattern.startswith("combatActive"):
+                    p = StateCombatCheck(scn)
                 else:
-                    if p:=checkPattern(scn,targetPattern):
-                        return p # FindCoords
-                # OrElse
-                if TryPressRetry(scn):
-                    Sleep(1)
-                    continue
-                if Press(CheckIf_fastForwardOff(scn)):
-                    Sleep(1)
-                    continue
-                
-                if fallback: # Execute
-                    if isinstance(fallback, (list, tuple)):
-                        if (len(fallback) == 2) and all(isinstance(x, (int, float)) for x in fallback):
-                            Press(fallback)
-                        else:
-                            for p in fallback:
-                                if isinstance(p, str):
-                                    pressTarget(p)
-                                elif isinstance(p, (list, tuple)) and len(p) == 2:
-                                    t = time.time()
-                                    Press(p)
-                                    if (waittime:=(time.time()-t)) < 0.1:
-                                        Sleep(0.1-waittime)
-                                else:
-                                    logger.debug(_("错误: 非法的目标{a}.".format(a=p)))
-                                    setting._FORCESTOPING.set()
-                                    return None
-                    else:
-                        if isinstance(fallback, str):
-                            pressTarget(fallback)
-                        else:
-                            logger.debug(_("错误: 非法的目标."))
-                            setting._FORCESTOPING.set()
-                            return None
-                Sleep(waitTime) # and wait
+                    p = CheckIf(scn, pattern)
+                if p:
+                    return p
 
-            logger.info(_("{a}次截图依旧没有找到目标{b}, 疑似卡死. 重启游戏.".format(a=setting.MAX_TRY_LIMIT, b=targetPattern)))
-            Sleep()
-            restartGame()
-            return None # restartGame会抛出异常 所以直接返回none就行了
+            # OrElse
+            if TryPressRetry(scn):
+                Sleep(1)
+                continue
+            if Press(CheckIf_fastForwardOff(scn)):
+                Sleep(1)
+                continue
+
+            # Execute fallback
+            if fallback:
+                if isinstance(fallback, str) or _is_coord(fallback):
+                    actions = [fallback]
+                elif isinstance(fallback, (list, tuple)):
+                    actions = list(fallback)
+                else:
+                    logger.error(_("错误: 非法的目标."))
+                    setting._FORCESTOPING.set()
+                    return None
+
+                for p in actions:
+                    if isinstance(p, str):
+                        if p.lower() == "return":
+                            PressReturn()
+                        elif p.startswith("input swipe"):
+                            DeviceShell(p)
+                        else:
+                            Press(CheckIf(scn, p))
+                            Sleep(0.2)
+                    elif _is_coord(p):
+                        t = time.time()
+                        Press(p)
+                        if (waittime := time.time() - t) < 0.1:
+                            Sleep(0.1 - waittime)
+                    else:
+                        logger.error(_("错误: 非法的目标{a}.".format(a=p)))
+                        setting._FORCESTOPING.set()
+                        return None
+                    
+            # And Wait
+            Sleep(waitTime)
+
+        logger.info(_("{a}次截图依旧没有找到目标{b}, 疑似卡死. 重启游戏.".format(
+            a=setting.MAX_TRY_LIMIT, b=targetPattern)))
+        Sleep(1)
+        restartGame()
+        return None
     def restartGame(skip_screenshot = False, force_restart_EMU = False):
         nonlocal runtimeContext
         runtimeContext._COMBATSPD = False # 重启会重置2倍速, 所以重置标识符以便重新打开.
@@ -1105,13 +1229,13 @@ def Factory():
             RestartableSequenceExecution(
                         lambda: FindCoordsOrElseExecuteFallbackAndWait("PartyManagementTitle",["PartyManagement","Edit","guild",[1,1]],1),
                         lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("ok",[[137,290],"AssembleParty"],1)),
-                        lambda: FindCoordsOrElseExecuteFallbackAndWait("Inn","return",1)
+                        lambda: FindCoordsOrElseExecuteFallbackAndWait("Inn",["return","leave"],1)
                 )
         else:
             RestartableSequenceExecution(
                         lambda: FindCoordsOrElseExecuteFallbackAndWait("PartyManagementTitle",["PartyManagement","Edit","guild",[1,1]],1),
                         lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("ok",[partyName,"AssembleParty"],1)),
-                        lambda: FindCoordsOrElseExecuteFallbackAndWait("Inn","return",1)
+                        lambda: FindCoordsOrElseExecuteFallbackAndWait("Inn",["return","leave"],1)
                             )
     def DungeonCompletionCounter():
         nonlocal runtimeContext
@@ -1135,7 +1259,7 @@ def Factory():
         nonlocal runtimeContext
         FindCoordsOrElseExecuteFallbackAndWait(["intoWorldMap","dungFlag","worldmapflag","openworldmap"],["startdownload","closePartyInfo","closePartyInfo_fortress","closePartyInfo_waterway",[1,1]],1)
         
-        if CheckIf(scn:=ScreenShot(), "dungflag"):
+        if CheckIf(scn:=ScreenShot(), "dungFlag",[[833-50, 287-50,100,100]]):
             # 如果已经在副本里了 直接结束.
             # 因为该函数预设了是从城市开始的.
             return
@@ -1161,7 +1285,11 @@ def Factory():
                 Sleep(0.5)
             Press([250,1500])
             runtimeContext._ZOOMWORLDMAP = True
-        pos = FindCoordsOrElseExecuteFallbackAndWait([target,"openworldmap"],[swipe,press_any_key],1)
+        pos = FindCoordsOrElseExecuteFallbackAndWait([target,"openworldmap", "dungflag"],[swipe,press_any_key],1)
+
+        if CheckIf(scn:=ScreenShot(), "dungflag"):
+            # 在特别罕见的情况下会出现这种情况. 已经在副本里了 直接结束.
+            return
 
         # 现在已经确保了可以看见target, 那么确保可以点击成功
         Sleep(1)
@@ -1211,7 +1339,7 @@ def Factory():
         logger.info(_("开始时间跳跃, 本次跳跃目标:{a}".format(a=target)))
 
         # 调整条目以找到跳跃目标
-        FindCoordsOrElseExecuteFallbackAndWait("cursedWheelTitle",["cursedWheel","ruins","startdownload",[1,1]],1)
+        FindCoordsOrElseExecuteFallbackAndWait(["cursedWheelTitle","accept_death_cursedWheel_timeLeap"],["cursedWheel","ruins","startdownload",[1,1]],1)
         Sleep(2)
         if Press(CheckIf(ScreenShot(),target)):
             Sleep(2)
@@ -1288,6 +1416,15 @@ def Factory():
         ReloadStrategy()
 
         return 
+    def ChangeQuest(target):
+        """切换到任务 target.
+
+        target: 目标任务名, 即 FARM_TARGET(例如 "7000G" / "fishing" / "ffxi-org", 或某个地下城任务名).
+        本函数不返回: 抛出 SystemExit 结束当前任务线程, 由 main.py 以新目标重新启动任务.
+        """
+        logger.info(_("准备切换到任务\"{a}\".".format(a=target)), summary=True)
+        setting._MSGQUEUE.put(("switch_quest", target))
+        raise SystemExit
     def IdentifyState():
         nonlocal setting # 修改因果
         counter = 0
@@ -1339,7 +1476,7 @@ def Factory():
                         ((runtimeContext._COUNTERDUNG - 1) % (max(setting.REST_INTERVEL, 1)) == 0)              # 每隔 REST_INTERVEL 次触发
                     ) or (
                         setting.RE_ASSEMBLE_PARTY and                       # 重新集结队伍
-                        (int(runtimeContext._TOTALTIME // (6 * 3600)) != runtimeContext._LAST_BAGCLEAR)         # 每 6 小时清包检查
+                        (int(runtimeContext._TOTALTIME // (setting.RE_ASSEMBLE_PARTY_INTERVAL * 3600)) != runtimeContext._LAST_BAGCLEAR)         # 每 RE_ASSEMBLE_PARTY_INTERVAL 小时清包检查
                     ):
                     FindCoordsOrElseExecuteFallbackAndWait("Inn",["return",[1,1]],1)
                     return State.Inn,DungeonState.Quit, screen
@@ -1374,7 +1511,7 @@ def Factory():
                     FindCoordsOrElseExecuteFallbackAndWait(["Inn","dungFlag"],[city,[1,1]],1)
                     if CheckIf(scn:=ScreenShot(),"Inn"):
                         return State.Inn,DungeonState.Quit, screen
-                    elif CheckIf(scn,"dungFlag"):
+                    elif CheckIf(scn,"dungFlag",[[833-50, 287-50,100,100]]):
                         return State.Dungeon,None, screen
 
             if (CheckIf(screen,"Inn")):
@@ -1401,12 +1538,15 @@ def Factory():
                     return IdentifyState()
                 if Press(CheckIf(screen, "sandman_recover")):
                     return IdentifyState()
-                if (CheckIf(screen,"cursedWheel_timeLeap")):
-                    if (setting.ACTIVE_BEG_MONEY):
-                        setting._MSGQUEUE.put(("turn_to_7000G",""))
-                        raise SystemExit
+                if (CheckIf(screen,"accept_death_cursedWheel_timeLeap",[[334, 1372, 231, 78]])):
+                    if (setting.ACTIVE_DIGGING):
+                        ChangeQuest("ffxi-org")
+                    elif (setting.ACTIVE_BEG_MONEY):
+                        ChangeQuest("7000G")
+                    elif (setting.ACTIVE_FISHING):
+                        ChangeQuest("fishing")
                     else:
-                        logger.info(_("看起来你没有选择找王女要钱. 那么就等两个小时吧."), summary=True)
+                        logger.info(_("看起来你没有选择任何0火的替代选项. 那么就等两个小时吧."), summary=True)
                         Sleep(7300)
                         restartGame()
                 if CheckIf(screen,"ambush") or CheckIf(screen,"ignore"):
@@ -1517,9 +1657,10 @@ def Factory():
             FindCoordsOrElseExecuteFallbackAndWait("OK",["Inn","Stay","royalsuite",[1,1]],2)
         else:
             FindCoordsOrElseExecuteFallbackAndWait("OK",["Inn","Stay","Economy",[1,1]],2)
-            
+        
         FindCoordsOrElseExecuteFallbackAndWait("Stay",["OK",[299,1464]],2)
         PressReturn()
+        runtimeContext.NEED_RECOVER_WHEN_REST = True
     def StateEoT():
         runtimeContext._RESUMEAVAILABLE = False
         if quest._preEOTcheck:
@@ -1541,9 +1682,10 @@ def Factory():
         if last[1] == "intoWorldMap":
             TeleportFromCityToWorldLocation(*last[2])
         else:
+            fb = [last[2], [1, 1]] if (isinstance(last[2], str) or _is_coord(last[2])) else [*last[2], [1, 1]]
             RestartableSequenceExecution(
-                lambda: FindCoordsOrElseExecuteFallbackAndWait(
-                    ["dungFlag", "GotoDung", last[1]], [last[2], [1, 1]], 1
+                lambda fb=fb, last=last: FindCoordsOrElseExecuteFallbackAndWait(
+                    ["dungFlag", "GotoDung", last[1]], fb, 1
                 )
             )
         Press(CheckIf(ScreenShot(), quest._EOT[-1][1]))
@@ -1555,15 +1697,31 @@ def Factory():
             runtimeContext._TIME_COMBAT = time.time()
         
         def AutoThisChar():
-            Press([850,1100])
+            Press([850,1090])
             Sleep(0.5)
-            Press([850,1100])
+            Press([850,1090])
             Sleep(2)
             return
         def ActiveAutoCombat():
             scn = ScreenShot()
-            if CheckIf(scn,"spellskill/CombatAutoDisable",[[842, 1124-42, 35, 13]]):
-                Press([850,1100])
+
+            roi = CutRoI(scn, [[842, 1124 - 42, 35, 13]])
+
+            # 分别计算与两张模板的匹配度
+            score_enable = CheckHow(roi, "spellskill/CombatAutoEnable")
+            score_disable   = CheckHow(roi, "spellskill/CombatAutoDisable")
+
+            logger.debug(f"自动战斗图标匹配: enable={score_enable:.4f}, disable={score_disable:.4f}")
+
+            # 谁高就是谁
+            if score_enable > score_disable:
+                # 黄色图 —— 假设为自动战斗已开启
+                logger.debug("自动战斗已开启（黄色图标）")
+            else:
+                # 灰白图 —— 自动战斗禁用，点击开启
+                logger.debug("自动战斗未开启（灰白图标），点击开启")
+                Press([850, 1090])
+
             Sleep(5)
             return
         def SkillLvlSelectAndDoubleCheck(skillPos,skilllvl, supportTarget):
@@ -1702,9 +1860,12 @@ def Factory():
             role_var = skill.get("role_var")
             if not role_var:  # 如果 role_var 为空则跳过
                 continue
-            for candidate in [role_var, role_var + "_sp", role_var + "_alt"]:
+            base_id = role_var if role_var in CHAR_LIST else CHAR_DISPLAY_TO_ID.get(role_var)
+            if not base_id:
+                continue
+            for candidate in [base_id, base_id + "_sp", base_id + "_alt"]:
                 # 构造图片完整路径并检查是否存在
-                img_path = os.path.join(IMAGE_FOLDER, "spellskill", "char", f"{candidate}.png")
+                img_path = os.path.join(IMAGE_FOLDER, "common","spellskill", "char", f"{candidate}.png")
                 full_path = ResourcePath(img_path)
                 if os.path.exists(full_path):
                     match_rate = CheckHow(scn, f"spellskill/char/{candidate}", [[87,55,73,51]])
@@ -1804,14 +1965,14 @@ def Factory():
             lastscreen = screen
         return dungState
     def StateMapSearch(targetInfo):
-        normalPlace = ["harken","chest","leaveDung","position","Bharken"]
+        normalPlace = ["harken","chest","position","Bharken"]
         target = os.path.basename(os.path.normpath(targetInfo.target))
         # 地图已经打开.
         map = ScreenShot()
 
         if CheckIf(map,"tooPoorToReadTheMap"):
             logger.info(_("在暴风雪中."))
-            Press(CheckIf(map,"dungFlag"))
+            Press(CheckIf(map,"dungFlag",[[833-50, 287-50,100,100]]))
             return StateMoving_CheckStop(),"FAIL"
     
         if not CheckIf(map,"mapFlag"):
@@ -1819,7 +1980,7 @@ def Factory():
             return None,"FAIL" # 发生了其他错误
 
         if quest._FloorCheck is not None:
-            if not CheckIf(map,quest._FloorCheck):
+            if not CheckFloorName(map,quest._FloorCheck):
                 logger.error("楼层错误.")
                 return None, "WRONGFLOOR"
 
@@ -1865,7 +2026,7 @@ def Factory():
         if runtimeContext._TIME_CHEST==0:
             runtimeContext._TIME_CHEST = time.time()
         
-        if setting.QUICK_DISARM_CHEST:
+        if (not quest._SPECIALJUNK) and setting.QUICK_DISARM_CHEST:
             if Press(CheckIf(ScreenShot(),"chestFlag")):
                 Sleep(1)
                 whowillopenit = setting.WHO_WILL_OPEN_IT - 1
@@ -1886,7 +2047,7 @@ def Factory():
         while 1:
             FindCoordsOrElseExecuteFallbackAndWait(
                 ["dungFlag","combatActive","chestOpening","whowillopenit","RiseAgain", "ambush"],
-                [[1,1],[1,1],"chestFlag"],
+                [[1,1],"chestFlag"],
                 1)
             scn = ScreenShot()
 
@@ -1905,8 +2066,11 @@ def Factory():
                     else:
                         Press(pos)
                         Sleep(1.5)
-                        # if not setting._SMARTDISARMCHEST:
-                        for underscore in range(8):
+                        if quest._SPECIALJUNK:
+                            disarm_time = 1
+                        else:
+                            disarm_time = 8
+                        for underscore in range(disarm_time):
                             t = time.time()
                             Press(disarm)
                             if time.time()-t<0.3:
@@ -1918,20 +2082,30 @@ def Factory():
 
             if CheckIf(scn,"chestOpening"):
                 Sleep(1)
-                # if setting._SMARTDISARMCHEST:
-                #     ChestOpen()
-                FindCoordsOrElseExecuteFallbackAndWait(
-                    ["dungFlag","combatActive","chestFlag","RiseAgain"], # 如果这个fallback重启了, 战斗箱子会直接消失, 固有箱子会是chestFlag
-                    [disarm,disarm,disarm,disarm,disarm,disarm,disarm,disarm],
-                    1)
-            
+                if quest._SPECIALJUNK:
+                    FindCoordsOrElseExecuteFallbackAndWait(
+                        ["dungFlag","combatActive","chestFlag","RiseAgain",quest._SPECIALJUNK], 
+                        [disarm],
+                        2)
+                    if CheckIf(ScreenShot(),quest._SPECIALJUNK):
+                        FindCoordsOrElseExecuteFallbackAndWait(
+                            ["dungFlag","combatActive","chestFlag","RiseAgain"],
+                            [disarm,disarm,disarm,disarm,disarm,disarm,disarm,disarm],
+                            1)
+                        ChangeQuest(quest._SPECIALJUNK_CALLBACK)
+                else:
+                    FindCoordsOrElseExecuteFallbackAndWait(
+                        ["dungFlag","combatActive","chestFlag","RiseAgain"],
+                        [disarm,disarm,disarm,disarm,disarm,disarm,disarm,disarm],
+                        1)
+
             if CheckIf(scn,"RiseAgain"):
                 RiseAgainReset(reason = "chest")
                 return None
             
             # 在图像识别的时候保持截图是最新的
             scn = ScreenShot()
-            if CheckIf(scn,"dungFlag"):
+            if CheckIf(scn,"dungFlag",[[833-50, 287-50,100,100]]):
                 return DungeonState.Dungeon
             if CheckIf(scn, "ambush"):
                 logger.info("开箱子然后遇到怪物还是善恶, 你这什么运气啊.")
@@ -1954,8 +2128,10 @@ def Factory():
         runtimeContext.TASK_STEP_INDEX = 0
         def TargetPointComplete():
             logger.info(f"任务点完成: {targetInfoList[0].target} {targetInfoList[0].roi if targetInfoList[0].target!='chest' else ''}")
+
             targetInfoList.pop(0)
             runtimeContext.TASK_STEP_INDEX += 1
+            runtimeContext._RESUMERE_TRY_COUNTER = 0 # 已完成一个地图目标, 重置resume连点计数.
 
             if setting.TASK_POINT_STRATEGY.get("overall_strategy", "") == _("自定义任务点策略"):
                 logger.info(f"由于面板设置, 切换到新任务点对应的策略.")
@@ -1963,6 +2139,7 @@ def Factory():
             return
         
         runtimeContext.NEED_RECOVER_WHEN_BEGINNING = True
+        runtimeContext._RESUMERE_TRY_COUNTER = 0 # 刚进入地下城, 重置resume连点计数.
 
         if runtimeContext.CURRENT_STRATEGY.get("need_reload_when_dungeon_begins", False) == True:
             logger.info("由于面板设置, 在进入副本时重置了战斗策略.")
@@ -2050,6 +2227,10 @@ def Factory():
                         shouldRecover = True
                         runtimeContext.NEED_RECOVER_WHEN_BEGINNING = False
                         logger.info(_("由于面板配置, 在刚进入地下城时进行恢复."))
+                    if setting.RECOVER_AFTER_REST and runtimeContext.NEED_RECOVER_WHEN_REST:
+                        shouldRecover = True
+                        runtimeContext.NEED_RECOVER_WHEN_REST = False
+                        logger.info(_("由于面板配置, 在休息后进行恢复."))
                     if runtimeContext._RECOVERAFTERREZ == True:
                         shouldRecover = True
                         runtimeContext._RECOVERAFTERREZ = False
@@ -2061,11 +2242,11 @@ def Factory():
                         while 1:
                             counter_trychar += 1
                             scn=ScreenShot()
-                            if (CheckIf(scn,"dungflag") and not CheckIf(scn,"mapFlag")) and (counter_trychar <=30):
+                            if (CheckIf(scn,"dungFlag",[[833-50, 287-50,100,100]]) and not CheckIf(scn,"mapFlag")) and (counter_trychar <=30):
                                 Press([36+(counter_trychar%3)*286,1425])
                                 Sleep(2)
                                 continue
-                            elif CheckIf(scn:=ScreenShot(),"trait"):
+                            elif CheckIf(scn:=ScreenShot(),"trait",[[20, 1282, 141, 98]]):
                                 if CheckIf(scn,"story", [[676,800,220,108]]):
                                     Press([725,850])
                                 else:
@@ -2099,9 +2280,16 @@ def Factory():
                             runtimeContext._BYPASSAFTERRESTART = True
                     ########### 尝试resume
                     not_moving = False
-                    if runtimeContext._RESUMEAVAILABLE and Press(CheckIf(ScreenShot(),"resume")):
+                    if runtimeContext._RESUMEAVAILABLE and (resumePos := CheckIf(ScreenShot(),"resume")):
+                        runtimeContext._RESUMERE_TRY_COUNTER += 1
+                        if runtimeContext._RESUMERE_TRY_COUNTER > 20:
+                            logger.info(_("连续点击resume超过20次, 疑似卡住. 重启游戏."))
+                            restartGame()
                         logger.info(_("resume可用. 使用resume."))
+                        Press(resumePos)
                         lastscreen = ScreenShot()
+                        
+                        # resume的移动状态检测
                         for counter in range(30):
                             Sleep(3)
                             underscore, dungState,screen = IdentifyState()
@@ -2141,22 +2329,23 @@ def Factory():
                         if targetInfoList[0] and (targetInfoList[0].target =="stay"):
                             Sleep(2)
                             return None
-                        for tar in ["chest_auto","mark_auto", "dungFlag"]:
-                            if targetInfoList[0] and (targetInfoList[0].target == tar):                        
+                        
+                        if targetInfoList[0] and ((tar:=targetInfoList[0].target) in ["chest_auto","mark_auto", "leaveDung"]):
+                            lastscreen = ScreenShot()
+                            if not Press(CheckIf(lastscreen,tar,[[720,250,150,180]])):
+                                Press(CheckIf(lastscreen,"mapflag"))
+                                Press([762,346]) # 认为是没有展开菜单
+                                Sleep(1)
                                 lastscreen = ScreenShot()
                                 if not Press(CheckIf(lastscreen,tar,[[720,250,150,180]])):
-                                    Press(CheckIf(lastscreen,"mapflag"))
-                                    Press([762,346]) # 认为是没有展开菜单
-                                    Sleep(1)
-                                    lastscreen = ScreenShot()
-                                    if not Press(CheckIf(lastscreen,tar,[[720,250,150,180]])):
-                                        return None # 如果我们两次检测失败, 认为发生了异常
+                                    return None # 如果我们两次检测失败, 认为发生了异常
+
+                            if tar == "chest_auto":
+                                if not CheckIf(MinusImage(lastscreen,90,90,90),"chest_auto_minus",[[811,340, 41, 30]]): # 精确匹配按钮是否可用
+                                    logger.info('宝箱按钮不可用.')
+                                    return DungeonState.Dungeon
                                 
-                                if tar == "chest_auto":
-                                    if not CheckIf(MinusImage(lastscreen,90,90,90),"chest_auto_minus",[[811,340, 41, 30]]): # 精确匹配按钮是否可用
-                                        logger.info('宝箱按钮不可用.')
-                                        return DungeonState.Dungeon
-                                    
+                            if tar in ["mark_auto","chest_auto"]:
                                 lastscreen = ScreenShot()
                                 if CheckIf(lastscreen,"NoChestCanBeFound") or CheckIf(lastscreen,"theRouteToTheDestinationCannotBeFound"):
                                     TargetPointComplete()
@@ -2168,10 +2357,9 @@ def Factory():
                                     logger.info(_("退出自动搜索."))
                                     return DungeonState.Dungeon
 
-
-                                Sleep(1)
-                                Press(CheckIf(lastscreen,"resume")) # 立刻按一次resume 以兼容暴风雪场景.
-                                return StateMoving_CheckStop()
+                            Sleep(1)
+                            Press(CheckIf(lastscreen,"resume")) # 立刻按一次resume 以兼容暴风雪场景.
+                            return StateMoving_CheckStop()
                             
                         return DungeonState.Dungeon
 
@@ -2193,12 +2381,13 @@ def Factory():
                         case "FAIL":
                             pass
                         case "WRONGFLOOR":
-                            targetInfoList.insert(0, TargetInfo("dungFlag")) # dungFlag也就是退出地下城按钮
+                            targetInfoList.insert(0, TargetInfo("leaveDung"))
                             # targetInfoList是复制的临时变量, 也就是每次退出stateDungeon就会重置, 因此可以放心修改.
+                            # 由于错误楼层可以确信是在哈肯面前, 所以可以直接退出.
 
                     if (targetInfoList==None) or (targetInfoList == []):
                         logger.info(_("地下城目标完成. 地下城状态结束.(仅限任务模式.)"))
-                        break
+                        return True
                 case DungeonState.Chest:
                     needRecoverBecauseChest = True
                     dungState = StateChest()
@@ -2217,11 +2406,11 @@ def Factory():
         Sleep(2)
         pos = FindCoordsOrElseExecuteFallbackAndWait(request,["input swipe 150 200 150 250",[1,1]],1)
         if not CheckIf(ScreenShot(),"request_accepted",[[0,pos[1]-200,900,pos[1]+200]]):
-            FindCoordsOrElseExecuteFallbackAndWait(["Inn","guildRequest"],[[pos[0]+pressbias[0],pos[1]+pressbias[1]],"return",[1,1]],1)
-            FindCoordsOrElseExecuteFallbackAndWait("Inn",["return",[1,1]],1)
+            FindCoordsOrElseExecuteFallbackAndWait(["Inn","guildRequest"],[[pos[0]+pressbias[0],pos[1]+pressbias[1]],"return","leave",[1,1]],1)
+            FindCoordsOrElseExecuteFallbackAndWait("Inn",["return","leave",[1,1]],1)
         else:
             logger.info(_("奇怪, 任务怎么已经接了."))
-            FindCoordsOrElseExecuteFallbackAndWait("Inn",["return",[1,1]],1)
+            FindCoordsOrElseExecuteFallbackAndWait("Inn",["return","leave",[1,1]],1)
 
     def DungeonFarm():
         nonlocal runtimeContext
@@ -2264,13 +2453,14 @@ def Factory():
                         )
                     state = State.EoT
                 case State.EoT:
-                    DungeonCompletionCounter()
                     RestartableSequenceExecution(
                         lambda:StateEoT()
                         )
                     state = State.Dungeon
                 case State.Dungeon:
                     # 首次进入地下城
+                    DungeonCompletionCounter()
+                    logger.info(_("创建任务点列表."))
                     targetInfoList = quest._TARGETINFOLIST.copy()
                     RestartableSequenceExecution(
                         lambda: StateDungeon(targetInfoList)
@@ -2715,8 +2905,7 @@ def Factory():
                             else:
                                 Press([pos[0]+300,pos[1]+150])
                                 break
-                        FindCoordsOrElseExecuteFallbackAndWait("guildRequest",[1,1],1)
-                        PressReturn()
+                        FindCoordsOrElseExecuteFallbackAndWait("guildRequest",["leave",[1,1]],1)
                     RestartableSequenceExecution(
                         lambda: logger.info(_("第三步: 领取任务")),
                         lambda: stepThree()
@@ -2772,7 +2961,7 @@ def Factory():
                     RestartableSequenceExecution(
                         lambda: logger.info(_("第四步: 领取任务")),
                         lambda: FindCoordsOrElseExecuteFallbackAndWait(["COS/Okay","guildRequest"],["guild",[1,1]],1),
-                        lambda: FindCoordsOrElseExecuteFallbackAndWait("Inn",["COS/Okay","return",[1,1]],1),
+                        lambda: FindCoordsOrElseExecuteFallbackAndWait("Inn",["COS/Okay","return","leave",[1,1]],1),
                         lambda: StateInn(),
                         )
                     
@@ -2829,7 +3018,7 @@ def Factory():
                         lambda: StateDungeon(cosback2f)
                         )
                     Press(FindCoordsOrElseExecuteFallbackAndWait("guild",["return",[1,1]],1)) # 回城
-                    FindCoordsOrElseExecuteFallbackAndWait("Inn",["return",[1,1]],1)
+                    FindCoordsOrElseExecuteFallbackAndWait("Inn",["return","leave",[1,1]],1)
                     
                 pass
             case "gaintKiller":
@@ -2908,8 +3097,9 @@ def Factory():
                     logger.info(_("第四步: 悬赏揭榜"))
                     RestartableSequenceExecution(
                         lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("guildRequest",["guild",[1,1]],1)),
-                        lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("Bounties",["guild","guildRequest","input swipe 600 1400 300 1400",[1,1]],1)),
-                        lambda:FindCoordsOrElseExecuteFallbackAndWait("EdgeOfTown",["return",[1,1]],1)
+                        lambda:Sleep(2),
+                        lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("bounty/Bounties",["guild","guildRequest","close","input swipe 600 1400 300 1400",[1,1]],1)),
+                        lambda:FindCoordsOrElseExecuteFallbackAndWait("EdgeOfTown",["return","leave",[1,1]],1)
                         )
 
                     logger.info(_("第五步: 击杀蝎女"))
@@ -2926,10 +3116,10 @@ def Factory():
                         lambda:FindCoordsOrElseExecuteFallbackAndWait("guild",["return",[1,1]],1),
                     )
                     RestartableSequenceExecution(
-                        lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("CompletionReported",["guild","guildRequest","input swipe 600 1400 300 1400","Bounties",[1,1]],1))
+                        lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("bounty/CompletionReported",["guild","guildRequest","input swipe 600 1400 300 1400","bounty/Bounties",[1,1]],1))
                         )
                     RestartableSequenceExecution(
-                        lambda:FindCoordsOrElseExecuteFallbackAndWait("EdgeOfTown",["return",[1,1]],1)
+                        lambda:FindCoordsOrElseExecuteFallbackAndWait("EdgeOfTown",["return","leave",[1,1]],1)
                         )
                     
                     logger.info(_("第七步: 休息"))
@@ -2989,8 +3179,9 @@ def Factory():
                     logger.info(_("第四步: 悬赏揭榜"))
                     RestartableSequenceExecution(
                         lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("guildRequest",["guild",[1,1]],1)),
-                        lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("Bounties",["guild","guildRequest","input swipe 600 1400 300 1400",[1,1]],1)),
-                        lambda:FindCoordsOrElseExecuteFallbackAndWait("EdgeOfTown",["return",[1,1]],1)
+                        lambda:Sleep(2),
+                        lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("bounty/Bounties",["guild","guildRequest","input swipe 600 1400 300 1400",[1,1]],1)),
+                        lambda:FindCoordsOrElseExecuteFallbackAndWait("EdgeOfTown",["return","leave",[1,1]],1)
                         )
 
                     logger.info(_("第五步: 击杀蝎女"))
@@ -3018,17 +3209,17 @@ def Factory():
                     
                     logger.info(_("第六步: 提交悬赏"))
                     RestartableSequenceExecution(
-                        lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("CompletionReported",["guild","guildRequest","input swipe 600 1400 300 1400","Bounties",[1,1]],1))
+                        lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("bounty/CompletionReported",["guild","guildRequest","input swipe 600 1400 300 1400","bounty/Bounties",[1,1]],1))
                         )
                     RestartableSequenceExecution(
-                        lambda:FindCoordsOrElseExecuteFallbackAndWait("EdgeOfTown",["return",[1,1]],1)
+                        lambda:FindCoordsOrElseExecuteFallbackAndWait("EdgeOfTown",["return","leave",[1,1]],1)
                         )
                     
                     RestartableSequenceExecution(
-                        lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("CompletionReported",["guild","guildRequest","input swipe 600 1400 300 1400","Bounties",[1,1]],1))
+                        lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("bounty/CompletionReported",["guild","guildRequest","input swipe 600 1400 300 1400","bounty/Bounties",[1,1]],1))
                         )
                     RestartableSequenceExecution(
-                        lambda:FindCoordsOrElseExecuteFallbackAndWait("EdgeOfTown",["return",[1,1]],1)
+                        lambda:FindCoordsOrElseExecuteFallbackAndWait("EdgeOfTown",["return","leave",[1,1]],1)
                         )
                     
                     logger.info(_("第七步: 休息"))
@@ -3057,14 +3248,11 @@ def Factory():
                     )
 
                     pos = CheckIf(ScreenShot(),"Steel")
-                    Press([pos[0]+306,pos[1]+258])
+                    Press([pos[0]+366,pos[1]+258])
                     
-                    quest._SPECIALDIALOGOPTION = ["ready","noneed", "quit"]
+                    quest._SPECIALDIALOGOPTION = ["ready","noneed"]
                     RestartableSequenceExecution(
-                        lambda:StateDungeon([TargetInfo("position","左上",[131,769]),
-                                    TargetInfo("position","左上",[827,447]),
-                                    TargetInfo("position","左上",[131,769]),
-                                    TargetInfo("position","左下",[719,1080]),
+                        lambda:StateDungeon([TargetInfo("mark_auto"),
                                     ])
                                   )
                     
@@ -3075,70 +3263,6 @@ def Factory():
                     costtime = time.time()-starttime
                     total_time = total_time + costtime
                     logger.info(_("第{a}次\"钢试炼\"完成. \n该次花费时间{b:.2f}s.\n总计用时{c:.2f}s.\n平均用时{d:.2f}".format(a=runtimeContext._COUNTERDUNG,b=costtime, c=total_time, d=total_time/runtimeContext._COUNTERDUNG)),
-                            summary=True)
-            case "jier":
-                total_time = 0
-                while 1:
-                    quest._SPECIALDIALOGOPTION = ["bounty/cuthimdown"]
-
-                    if setting._FORCESTOPING.is_set():
-                        break
-
-                    starttime = time.time()
-                    runtimeContext._COUNTERDUNG += 1
-
-                    RestartableSequenceExecution(
-                        lambda: CursedWheelTimeLeap("requestToRescueTheDuke")
-                        )
-
-                    Sleep(10)
-                    logger.info(_("第二步: 返回要塞..."))
-                    RestartableSequenceExecution(
-                        lambda: FindCoordsOrElseExecuteFallbackAndWait("Inn",["returntotown","returnText","leaveDung","blessing",[1,1]],2)
-                        )
-
-                    logger.info(_("第三步: 前往王城..."))
-                    RestartableSequenceExecution(
-                        lambda:TeleportFromCityToWorldLocation("City_RoyalCityLuknalia","input swipe 450 150 500 150"),
-                        )
-
-                    logger.info(_("第四步: 悬赏揭榜"))
-                    RestartableSequenceExecution(
-                        lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("guildRequest",["guild",[1,1]],1)),
-                        lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("Bounties",["guild","guildRequest","input swipe 600 1400 300 1400",[1,1]],1)),
-                        lambda:FindCoordsOrElseExecuteFallbackAndWait("EdgeOfTown",["return",[1,1]],1)
-                        )
-
-                    logger.info(_("第五步: 和吉尔说再见吧"))
-                    RestartableSequenceExecution(
-                        lambda:FindCoordsOrElseExecuteFallbackAndWait("dungFlag",["EdgeOfTown","beginningAbyss","B4FLabyrinth","GotoDung",[1,1]],1)
-                        )
-                    RestartableSequenceExecution( 
-                        lambda:StateDungeon([TargetInfo("position","左下",[452,545]),
-                                             TargetInfo("position","左下",[452,1026]),
-                                             TargetInfo("harken","左上",None)]),
-                        )
-                    
-                    logger.info(_("第六步: 提交悬赏"))
-                    RestartableSequenceExecution(
-                        lambda:FindCoordsOrElseExecuteFallbackAndWait("guild",["return",[1,1]],1),
-                    )
-                    RestartableSequenceExecution(
-                        lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("CompletionReported",["guild","guildRequest","input swipe 600 1400 300 1400","Bounties",[1,1]],1))
-                        )
-                    RestartableSequenceExecution(
-                        lambda:FindCoordsOrElseExecuteFallbackAndWait("EdgeOfTown",["return",[1,1]],1)
-                        )
-                    
-                    logger.info(_("第七步: 休息"))
-                    if ((runtimeContext._COUNTERDUNG-1) % (setting.REST_INTERVEL+1) == 0):
-                        RestartableSequenceExecution(
-                            lambda:StateInn()
-                            )
-                        
-                    costtime = time.time()-starttime
-                    total_time = total_time + costtime
-                    logger.info(_("第{a}次\"悬赏:吉尔\"完成. \n该次花费时间{b:.2f}s.\n总计用时{c:.2f}s.\n平均用时{d:.2f}".format(a=runtimeContext._COUNTERDUNG,b=costtime, c=total_time, d=total_time/runtimeContext._COUNTERDUNG)),
                             summary=True)
             case "lovesleep":
                 logger.info(_("开始睡觉."))
@@ -3152,26 +3276,6 @@ def Factory():
                     if setting._FORCESTOPING.is_set():
                         break
                     logger.info(_("完成了{a}次旅店休息.\n总计用时{c:.2f}s.\n平均用时{d:.2f}s.").format(a=counter+1, c=time.time()-t, d=(time.time()-t)/(counter+1)),summary=True)
-            case "fortress-B8F_trap":
-                while 1:
-                    if setting._FORCESTOPING.is_set():
-                        break
-                    if runtimeContext._LAPTIME!= 0:
-                        runtimeContext._TOTALTIME = runtimeContext._TOTALTIME + time.time() - runtimeContext._LAPTIME
-                        logger.info(_("第{a}次要塞小精灵完成. 本次用时:{b}秒. 累计开箱子{c}, 累计战斗{d}, 累计用时{e}秒.".format(a=runtimeContext._COUNTERDUNG, b=round(time.time()-runtimeContext._LAPTIME,2),c=runtimeContext._COUNTERCHEST, d=runtimeContext._COUNTERCOMBAT, e=round(runtimeContext._TOTALTIME,2))),
-                                    summary=True)
-                    runtimeContext._LAPTIME = time.time()
-                    runtimeContext._COUNTERDUNG+=1
-
-                    RestartableSequenceExecution(
-                        lambda: StateDungeon([TargetInfo("stair_fortress1f","左上",[720,395]),
-                                              TargetInfo("mark_auto"),
-                                              TargetInfo("position","右下",[712,972]),
-                                              TargetInfo("position","右下",[500,1080]),
-                                              TargetInfo("position","右下",[765,918]),
-                                              TargetInfo("position","右下",[606,1026]),
-                                              TargetInfo("stair_fortressGate","左下", [720,1027]),])
-                        )
             case "FFXI-Org":
                 counter = {
                     "全改" : 0,
@@ -3194,6 +3298,19 @@ def Factory():
                 while 1:
                     if setting._FORCESTOPING.is_set():
                         break
+
+                    if CheckIf(ScreenShot(), "accept_death_cursedWheel_timeLeap",[[334, 1372, 231, 78]]):
+                        if setting.ACTIVE_TRIUMPH == True:
+                            RestartableSequenceExecution(    
+                                lambda: CursedWheelTimeLeap(chapter="cursedwheel_impregnableFortress", target="Triumph")
+                            )
+                        else:
+                            RestartableSequenceExecution(    
+                                lambda: CursedWheelTimeLeap(chapter="cursedwheel_dhi", target="BeautifulOre")
+                            )
+                        Sleep(30)
+                        continue
+                    
                     logger.info("进本!")
                     RestartableSequenceExecution(
                         lambda: StateEoT()
@@ -3319,6 +3436,7 @@ def Factory():
                             ]
                 quest._SPECIALDIALOGOPTION = ["sandman/sandman_1",
                                               "sandman/sandman_2",
+                                              "sandman/sandman_3",
                                               "sandman/sandman_bondmate"]
                 def callback(option):
                     nonlocal sandman_complete
@@ -3329,10 +3447,13 @@ def Factory():
                 quest._TARGETINFOLIST = [TargetInfo("position","左下",[133,814]),
                                          TargetInfo("position","左下",[238,1076]),
                                          TargetInfo("position","左下",[450,924]),
-                                         TargetInfo("harken2","左下")]
+                                         TargetInfo("leaveDung")]
 
                 
                 while 1:
+                    if setting._FORCESTOPING.is_set():
+                        break
+                    
                     RestartableSequenceExecution(    
                         lambda: StateEoT()
                         )
@@ -3341,6 +3462,9 @@ def Factory():
                         )
                     if sandman_complete:
                         sandman_complete = False
+                        RestartableSequenceExecution(
+                            lambda: FindCoordsOrElseExecuteFallbackAndWait("Inn",["return",[1,1]],1)
+                            )
                         RestartableSequenceExecution(
                             lambda: StateInn()
                             )
@@ -3407,6 +3531,52 @@ def Factory():
 
                     if parts:
                         return ", ".join(parts) + "."
+                def refillBait(): # 从钓鱼界面退出并回城并更换鱼饵.
+                    Press([516, 1529])
+                    if CheckIf(ScreenShot(),"fishing/nobaitinbag",[[121, 1081, 100, 100]]):
+                        logger.info("真的没有了.")
+                        RestartableSequenceExecution(
+                            lambda: FindCoordsOrElseExecuteFallbackAndWait("dungFlag",["fishing/quit","return",],1)
+                            )
+                        RestartableSequenceExecution(
+                            lambda: StateDungeon([TargetInfo("position","右上",[818,928])])
+                            )
+                        if CheckIf(ScreenShot(),"intoWorldMap"):
+                            Press([50,1535])
+                        FindCoordsOrElseExecuteFallbackAndWait("ItemList",[[860,1150]],1)
+                        pos = FindCoordsOrElseExecuteFallbackAndWait("fishing/iconbait",[[135,1294],[660,1200]],1)
+                        FindCoordsOrElseExecuteFallbackAndWait("whowillyougiveitto",["transfer",[pos[0]+750-111,pos[1]]],1)
+                        pos = CheckIf(ScreenShot(),"fishing/baitbox")
+                        for i in range(70):
+                            Press(pos)
+                            Sleep(0.5)
+                        FindCoordsOrElseExecuteFallbackAndWait("Inn",["return",[1,1]],1)
+
+                        RestartableSequenceExecution(
+                            lambda: goToFishing()
+                            )
+
+                        logger.info("换鱼饵结束.")
+                        Sleep(10)
+                    else:
+                        logger.info("鱼饵还有, 不需要更换.")
+                        Sleep(2)
+                        Press([196, 1153])
+                        Sleep(2)
+                        FindCoordsOrElseExecuteFallbackAndWait("fishing/cast","return",3)
+                def goToFishing():
+                    quest._EOT = [
+                        ["press","DH-R6",["EdgeOfTown","DH","input swipe 650 250 650 900"],1]
+                    ]
+                    RestartableSequenceExecution(
+                        lambda: StateEoT()
+                        )
+                    RestartableSequenceExecution(
+                        lambda: StateDungeon([TargetInfo("position","右上",[339,555])])
+                        )
+                    RestartableSequenceExecution(
+                        lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("fishing/startfishing",["mapFlag", "input swipe 450 900 450 600", [450,500]],1))
+                        )
                 ################
                 while 1:
                     tick += 1
@@ -3419,47 +3589,32 @@ def Factory():
                         Sleep(1)
                         continue
 
+                    if CheckIf(scn, "Inn"):
+                        RestartableSequenceExecution(
+                            lambda: goToFishing()
+                            )
+                        continue
+
+                    if CheckIf(scn, "accept_death_cursedWheel_timeLeap",[[334, 1372, 231, 78]]):
+                        RestartableSequenceExecution(    
+                            lambda: CursedWheelTimeLeap(chapter="cursedwheel_dhi", target="BeautifulOre")
+                        )
+                        Sleep(30)
+                        TeleportFromCityToWorldLocation("City_DHI", "input swipe 54 1346 302 1571")
+                        Sleep(3)
+                        continue
+
                     if CheckIf(scn, "fishing/cast"):
                         if CheckIf(scn,"fishing/nobait",[[530,1469,120,120]]):
                             nobait = CheckHow(scn,"fishing/nobait",[[530,1469,120,120]])
                             eightbait = CheckHow(scn,"fishing/8bait",[[530,1469,120,120]])
-                            if nobait > eightbait:
+                            ninebait = CheckHow(scn,"fishing/9bait",[[530,1469,120,120]])
+                            if (nobait > eightbait) and (nobait > ninebait):
                                 logger.info("没有鱼饵了...")
-                                RestartableSequenceExecution(
-                                    lambda: FindCoordsOrElseExecuteFallbackAndWait("dungFlag",["fishing/quit",],1)
-                                    )
-                                RestartableSequenceExecution(
-                                    lambda: StateDungeon([TargetInfo("position","右上",[818,928])])
-                                    )
-                                def refillBait():
-                                    if CheckIf(ScreenShot(),"intoWorldMap"):
-                                        Press([50,1535])
-                                    FindCoordsOrElseExecuteFallbackAndWait("ItemList",[[860,1150]],1)
-                                    pos = FindCoordsOrElseExecuteFallbackAndWait("fishing/iconbait",[[135,1294],[660,1200]],1)
-                                    FindCoordsOrElseExecuteFallbackAndWait("whowillyougiveitto",["transfer",[pos[0]+750-111,pos[1]]],1)
-                                    pos = CheckIf(ScreenShot(),"fishing/baitbox")
-                                    for i in range(70):
-                                        Press(pos)
-                                        Sleep(0.5)
-                                    FindCoordsOrElseExecuteFallbackAndWait("Inn",["return",[1,1]],1)
                                 RestartableSequenceExecution(
                                     lambda: refillBait()
                                     )
-                                quest._EOT = [
-                                    ["press","DH",["EdgeOfTown",[1,1]],1],
-                                    ["press","DH-R6","input swipe 650 250 650 900",1]
-                                ]
-                                RestartableSequenceExecution(
-                                    lambda: StateEoT()
-                                    )
-                                RestartableSequenceExecution(
-                                    lambda: StateDungeon([TargetInfo("position","右上",[339,555])])
-                                    )
-                                RestartableSequenceExecution(
-                                    lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("fishing/startfishing",["mapFlag", "input swipe 450 900 450 600", [450,500]],1))
-                                    )
-                                logger.info("换鱼饵结束.")
-                                Sleep(10)
+                                continue
 
                         for i in range(5):
                             DeviceShell(f"input swipe 50 1200 850 1200 100")
@@ -3504,152 +3659,8 @@ def Factory():
                     Press([250,1200])
                     for i in range(40):
                         DeviceShell(f"input swipe 250 1200 850 1200 100")
-            case "fishing2":
-                            start_time = time.time()
-                            t = time.time()
-                            total_time = 0
-                            fish = 0
-                            failed_fishing = 0
-                            tick = 0
-                            ################
-                            fishinfo = {}
-                            def CollectFishInfo(scn):
-                                nonlocal fishinfo
-                                vals_size = {
-                                        "小": CheckHow(scn,"fishing/size_small"),
-                                        "普通": CheckHow(scn,"fishing/size_average"),
-                                        "大": CheckHow(scn,"fishing/size_large"),
-                                        }
-                                vals_category = {
-                                        "鲈鱼": CheckHow(scn,"fishing/鲈鱼", [[0,1100,900,150]]),
-                                        "雅罗": CheckHow(scn,"fishing/雅罗", [[0,1100,900,150]]),
-                                        "鲶鱼": CheckHow(scn,"fishing/鲶鱼", [[0,1100,900,150]]),
-                                        "鳟鱼": CheckHow(scn,"fishing/鳟鱼", [[0,1100,900,150]]),
-                                        "鳗鱼": CheckHow(scn,"fishing/鳗鱼", [[0,1100,900,150]]),
-                                        "三文鱼": CheckHow(scn,"fishing/三文鱼", [[0,1100,900,150]]),
-                                        "杂鱼": CheckHow(scn,"fishing/杂鱼", [[0,1100,900,150]]),
-                                    }
-                                if vals_size[match_size:=max(vals_size,key=vals_size.get)] > 0.9:
-                                    if vals_category[best := max(vals_category, key=vals_category.get)] > 0.9:
-                                        logger.info(f"获得了{match_size}{best}!")
-                                        fishinfo.setdefault(match_size, {}).setdefault(best, 0)
-                                        fishinfo[match_size][best]+=1
-                                    else:
-                                        logger.info(f"某些无法判断的东西...")
-                                        fishinfo.setdefault(match_size, {}).setdefault("未收录", 0)
-                                        fishinfo[match_size]["未收录"]+=1
-                                ################       
-            
-                                fish_order = list(vals_category.keys()) + ["未收录"]
-            
-                                parts = []
-            
-                                for fish in fish_order:
-                                    for size in ("大", "普通", "小"):  # 普通在前，小在后
-                                        count = fishinfo.get(size, {}).get(fish, 0)
-                                        if count:
-                                            parts.append(f"{size}{fish} {count}条")
-            
-                                if parts:
-                                    return ", ".join(parts) + "."
-                            ################
-                            while 1:
-                                tick += 1
-                                if setting._FORCESTOPING.is_set():
-                                    break
-            
-                                scn = ScreenShot()
-                                if TryPressRetry(scn) or Press(CheckIf(scn,"totitle")):
-                                    logger.info("网络故障, 重试中......")
-                                    Sleep(1)
-                                    continue
-            
-                                if CheckIf(scn, "fishing/cast"):
-                                    if CheckIf(scn,"fishing/nobait",[[530,1469,120,120]]):
-                                        nobait = CheckHow(scn,"fishing/nobait",[[530,1469,120,120]])
-                                        eightbait = CheckHow(scn,"fishing/8bait",[[530,1469,120,120]])
-                                        if nobait > eightbait:
-                                            logger.info("没有鱼饵了...")
-                                            RestartableSequenceExecution(
-                                                lambda: FindCoordsOrElseExecuteFallbackAndWait("dungFlag",["fishing/quit",],1)
-                                                )
-                                            RestartableSequenceExecution(
-                                                lambda: StateDungeon([TargetInfo("position","右上",[818,928])])
-                                                )
-                                            def refillBait():
-                                                if CheckIf(ScreenShot(),"intoWorldMap"):
-                                                    Press([50,1535])
-                                                FindCoordsOrElseExecuteFallbackAndWait("ItemList",[[860,1150]],1)
-                                                pos = FindCoordsOrElseExecuteFallbackAndWait("fishing/iconbait",[[135,1294],[660,1200]],1)
-                                                FindCoordsOrElseExecuteFallbackAndWait("whowillyougiveitto",["transfer",[pos[0]+750-111,pos[1]]],1)
-                                                pos = CheckIf(ScreenShot(),"fishing/baitbox")
-                                                for i in range(70):
-                                                    Press(pos)
-                                                    Sleep(0.5)
-                                                FindCoordsOrElseExecuteFallbackAndWait("Inn",["return",[1,1]],1)
-                                            RestartableSequenceExecution(
-                                                lambda: refillBait()
-                                                )
-                                            quest._EOT = [
-                                                ["press","DH",["EdgeOfTown",[1,1]],1],
-                                                ["press","DH-R6","input swipe 650 250 650 900",1]
-                                            ]
-                                            RestartableSequenceExecution(
-                                                lambda: StateEoT()
-                                                )
-                                            RestartableSequenceExecution(
-                                                lambda: StateDungeon([TargetInfo("position","右上",[339,555])])
-                                                )
-                                            RestartableSequenceExecution(
-                                                lambda: Press(FindCoordsOrElseExecuteFallbackAndWait("fishing/startfishing",["mapFlag", "input swipe 450 900 450 600", [450,500]],1))
-                                                )
-                                            logger.info("换鱼饵结束.")
-                                            Sleep(10)
-            
-                                    for i in range(5):
-                                        DeviceShell(f"input swipe 50 1200 850 1200 100")
-                                    for i in range(2):
-                                        DeviceShell(f"input swipe 850 1200 50 1200 100")
-                                    Sleep(1)
-                                    logger.info("下杆!")
-                                    DeviceShell(f"input swipe 400 1200 450 1250 2250")
-                                    t = time.time()
-                                    Sleep(10)
-                                    continue
-            
-                                if pos:=CheckIf(scn, "fishing/striking"):
-                                    if time.time()-t>300:
-                                        logger.info("5分钟了还没钓到, 重来吧.")
-                                        failed_fishing += 1
-                                        Press(pos)
-                                        Sleep(5)
-                                    fishbobber, img = Fishing_DetectBobber(CutRoI(scn,[[250,500,400,600]]))
-                                    # SaveImage(img)
-                                    logger.debug(fishbobber)
-                                    if fishbobber == []:
-                                        logger.info("拉杆!")
-                                        DeviceShell(f"input swipe 450 700 450 50 100")
-                                        Sleep(3) # 拉杆动画大约2秒动作和0.2秒冷却
-                                    else:
-                                        if tick % 15 == 0:
-                                            logger.info("等待着猎物...")
-                                        Sleep(1)
-                                    continue
-            
-                                if Press(CheckIf(scn, "fishing/CloseFishInfo")):
-                                    fish += 1
-                                    total_time = total_time + time.time() - t
-                                    t = 0
-                                    info = CollectFishInfo(scn)
-                                    logger.info(f"已完成远端钓鱼{fish}次, 失败{failed_fishing}次.\n累计用时{time.time()-start_time:.2f}秒, 平均每条鱼用时{(time.time()-start_time)/fish:.2f}秒.\n{info}", summary = True)
-                                    SaveImage(scn=scn)
-                                    Sleep(5)
-                                    continue
-            
-                                Press([250,1200])
-                                for i in range(40):
-                                    DeviceShell(f"input swipe 250 1200 850 1200 100")
             case "test":
+                TeleportFromCityToWorldLocation("City_DHI", "input swipe 54 1346 302 1571")
                 pass
                 
                     
