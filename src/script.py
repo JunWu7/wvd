@@ -206,7 +206,7 @@ def LoadQuest(farmtarget):
 ##################################################################
 def CMDLine(cmd):
     logger.debug(_("执行cmd命令: %s") % cmd)
-    result = subprocess.run(cmd,shell=True, capture_output=True, text=True, timeout=10,encoding="utf-8")
+    result = subprocess.run(cmd,shell=True, capture_output=True, text=True, timeout=10,encoding="utf-8", creationflags=CREATE_NO_WINDOW)
     
     stdout = (result.stdout or '').strip()
     stderr = (result.stderr or '').strip()
@@ -237,8 +237,9 @@ def CheckAndRecoverDevice(setting : FarmConfig, runtimeContext: RuntimeContext, 
         result = subprocess.run(
             "tasklist /FO CSV /NH | findstr \"MuMuNxDevice.exe MuMuPlayer.exe\"",
             shell=True,
-            capture_output=True, 
-            text=True
+            capture_output=True,
+            text=True,
+            creationflags=CREATE_NO_WINDOW
         )
         result_str = result.stdout.strip()
         logger.debug(result_str)
@@ -262,27 +263,30 @@ def CheckAndRecoverDevice(setting : FarmConfig, runtimeContext: RuntimeContext, 
             # Windows 系统使用 taskkill 命令
             if os.name == "nt":
                 subprocess.run(
-                    f"taskkill /f /im adb.exe", 
+                    f"taskkill /f /im adb.exe",
                     shell=True,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    check=False  # 不检查命令是否成功（进程可能不存在）
+                    check=False,  # 不检查命令是否成功（进程可能不存在）
+                    creationflags=CREATE_NO_WINDOW
                 )
                 time.sleep(1)
                 subprocess.run(
-                    f"taskkill /f /im HD-Adb.exe", 
+                    f"taskkill /f /im HD-Adb.exe",
                     shell=True,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    check=False  # 不检查命令是否成功（进程可能不存在）
+                    check=False,  # 不检查命令是否成功（进程可能不存在）
+                    creationflags=CREATE_NO_WINDOW
                 )
             else:
                 subprocess.run(
-                    f"pkill -f {adb_path}", 
+                    f"pkill -f {adb_path}",
                     shell=True,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    check=False
+                    check=False,
+                    creationflags=CREATE_NO_WINDOW
                 )
             logger.info(_("已尝试终止adb"))
         except Exception as e:
@@ -297,55 +301,61 @@ def CheckAndRecoverDevice(setting : FarmConfig, runtimeContext: RuntimeContext, 
                 if runtimeContext._RUNNING_EMU_PID:
                     logger.info(_("使用已知进程号{a}关闭模拟器...").format(a=runtimeContext._RUNNING_EMU_PID))
                     subprocess.run(
-                        f"taskkill /IM /pid {runtimeContext._RUNNING_EMU_PID}", 
+                        f"taskkill /IM /pid {runtimeContext._RUNNING_EMU_PID}",
                         shell=True,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
-                        check=False  # 不检查命令是否成功（进程可能不存在）
+                        check=False,  # 不检查命令是否成功（进程可能不存在）
+                        creationflags=CREATE_NO_WINDOW
                     )
                     time.sleep(1)
                     subprocess.run(
-                        f"taskkill /F /IM MuMuVMMHeadless.exe", 
+                        f"taskkill /F /IM MuMuVMMHeadless.exe",
                         shell=True,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
-                        check=False  # 不检查命令是否成功（进程可能不存在）
+                        check=False,  # 不检查命令是否成功（进程可能不存在）
+                        creationflags=CREATE_NO_WINDOW
                     )
                     time.sleep(1)
                 else:
                     logger.info(_("模拟器uid未知, 全杀了."))
                     subprocess.run(
-                        f"taskkill /f /im {emulator_name}", 
+                        f"taskkill /f /im {emulator_name}",
                         shell=True,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
-                        check=False  # 不检查命令是否成功（进程可能不存在）
+                        check=False,  # 不检查命令是否成功（进程可能不存在）
+                        creationflags=CREATE_NO_WINDOW
                     )
                     time.sleep(1)
                     subprocess.run(
-                        f"taskkill /f /im {emulator_SVC}", 
+                        f"taskkill /f /im {emulator_SVC}",
                         shell=True,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
-                        check=False  # 不检查命令是否成功（进程可能不存在）
+                        check=False,  # 不检查命令是否成功（进程可能不存在）
+                        creationflags=CREATE_NO_WINDOW
                     )
                     time.sleep(1)
 
             # Unix/Linux 系统使用 pkill 命令
             else:
                 subprocess.run(
-                    f"pkill -f {emulator_name}", 
+                    f"pkill -f {emulator_name}",
                     shell=True,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    check=False
+                    check=False,
+                    creationflags=CREATE_NO_WINDOW
                 )
                 subprocess.run(
-                    f"pkill -f {emulator_headless}", 
+                    f"pkill -f {emulator_headless}",
                     shell=True,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    check=False
+                    check=False,
+                    creationflags=CREATE_NO_WINDOW
                 )
             logger.info(_("已尝试终止模拟器进程: {a}".format(a=emulator_name)))
         except Exception as e:
@@ -370,9 +380,10 @@ def CheckAndRecoverDevice(setting : FarmConfig, runtimeContext: RuntimeContext, 
             subprocess.Popen(
                 cmd, 
                 shell=True,
-                stdout=subprocess.DEVNULL, 
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                cwd=os.path.dirname(hd_player_path))
+                cwd=os.path.dirname(hd_player_path),
+                creationflags=CREATE_NO_WINDOW)
 
             # 延时
             time.sleep(5)
@@ -619,7 +630,8 @@ def Factory():
                     [GetADBPathFromEmuPath(setting.EMU_PATH), "-s", serial, "exec-out",
                     cmd],
                     capture_output=True,
-                    timeout=5
+                    timeout=5,
+                    creationflags=CREATE_NO_WINDOW
                 )
 
                 if process_result.stderr:
@@ -1035,12 +1047,14 @@ def Factory():
         return (isinstance(x, (list, tuple))
                 and len(x) == 2
                 and all(isinstance(v, (int, float)) for v in x))
-    def FindCoordsOrElseExecuteFallbackAndWait(targetPattern, fallback, waitTime):
+    def FindCoordsOrElseExecuteFallbackAndWait(targetPattern, fallback, waitTime, SAVEIMAGE = False):
         for not_used in range(setting.MAX_TRY_LIMIT):
             if setting._FORCESTOPING.is_set():
                 return None
             
             scn = ScreenShot()
+            if SAVEIMAGE:
+                SaveImage(scn, prefix="FCOEEFnW")
 
             # FindCoords
             patterns = targetPattern if isinstance(targetPattern, (list, tuple)) else (targetPattern,)
@@ -2121,8 +2135,8 @@ def Factory():
         GAMEFROZEN_STATEMAPLIMIT = 20+20*len(targetInfoList)
         dungState = None
         shouldRecover = False
-        needRecoverBecauseCombat = False
-        needRecoverBecauseChest = False
+        pendingCombatEvent = False
+        pendingChestEvent = False
 
         nonlocal runtimeContext
         runtimeContext.TASK_STEP_INDEX = 0
@@ -2131,7 +2145,6 @@ def Factory():
 
             targetInfoList.pop(0)
             runtimeContext.TASK_STEP_INDEX += 1
-            runtimeContext._RESUMERE_TRY_COUNTER = 0 # 已完成一个地图目标, 重置resume连点计数.
 
             if setting.TASK_POINT_STRATEGY.get("overall_strategy", "") == _("自定义任务点策略"):
                 logger.info(f"由于面板设置, 切换到新任务点对应的策略.")
@@ -2204,19 +2217,22 @@ def Factory():
                             runtimeContext._TIME_COMBAT_TOTAL = runtimeContext._TIME_COMBAT_TOTAL + spend_on_combat
                             runtimeContext._TIME_CHEST_TOTAL = runtimeContext._TIME_CHEST_TOTAL + spend_on_chest
                     ########### RECOVER
-                    if needRecoverBecauseChest:
-                        logger.info(_("进行开启宝箱后的恢复."))
+                    if pendingChestEvent:
+                        logger.info(_("处理已完成的宝箱事件."))
                         runtimeContext._COUNTERCHEST+=1
-                        needRecoverBecauseChest = False
+                        runtimeContext._RESUMERE_TRY_COUNTER = 0 # 完成宝箱后重置resume连点计数.
+                        pendingChestEvent = False
                         runtimeContext._MEET_CHEST_OR_COMBAT = True
                         if setting.DO_CHEST_RECOVER:
                             logger.info(_("由于面板配置, 进行开启宝箱后恢复."))
                             shouldRecover = True
                         else:
                             logger.info(_("由于面板配置, 跳过了开启宝箱后恢复."))
-                    if needRecoverBecauseCombat:
+                    if pendingCombatEvent:
+                        logger.info(_("处理已完成的战斗事件."))
                         runtimeContext._COUNTERCOMBAT+=1
-                        needRecoverBecauseCombat = False
+                        runtimeContext._RESUMERE_TRY_COUNTER = 0 # 完成战斗后重置resume连点计数.
+                        pendingCombatEvent = False
                         runtimeContext._MEET_CHEST_OR_COMBAT = True
                         if (setting.DO_COMBAT_RECOVER):
                             logger.info(_("由于面板配置, 进行战后恢复."))
@@ -2389,10 +2405,10 @@ def Factory():
                         logger.info(_("地下城目标完成. 地下城状态结束.(仅限任务模式.)"))
                         return True
                 case DungeonState.Chest:
-                    needRecoverBecauseChest = True
+                    pendingChestEvent = True
                     dungState = StateChest()
                 case DungeonState.Combat:
-                    needRecoverBecauseCombat =True
+                    pendingCombatEvent =True
                     StateCombat()
                     dungState = None
     def StateAcceptRequest(request: str, pressbias:list = [0,0]):
@@ -2683,8 +2699,8 @@ def Factory():
                 gameFrozen_StateNoneScreenHistory = []
                 dungState = None
                 shouldRecover = False
-                needRecoverBecauseCombat = False
-                needRecoverBecauseChest = False
+                pendingCombatEvent = False
+                pendingChestEvent = False
                 while 1:
                     underscore, dungState,underscore = IdentifyState()
                     logger.info(dungState)
@@ -2728,19 +2744,20 @@ def Factory():
                                     runtimeContext._TIME_COMBAT_TOTAL = runtimeContext._TIME_COMBAT_TOTAL + spend_on_combat
                                     runtimeContext._TIME_CHEST_TOTAL = runtimeContext._TIME_CHEST_TOTAL + spend_on_chest
                             ########### RECOVER
-                            if needRecoverBecauseChest:
-                                logger.info(_("进行开启宝箱后的恢复."))
+                            if pendingChestEvent:
+                                logger.info(_("处理已完成的宝箱事件."))
                                 runtimeContext._COUNTERCHEST+=1
-                                needRecoverBecauseChest = False
+                                pendingChestEvent = False
                                 runtimeContext._MEET_CHEST_OR_COMBAT = True
                                 if setting.DO_CHEST_RECOVER:
                                     logger.info(_("由于面板配置, 进行开启宝箱后恢复."))
                                     shouldRecover = True
                                 else:
                                     logger.info(_("由于面板配置, 跳过了开启宝箱后恢复."))
-                            if needRecoverBecauseCombat:
+                            if pendingCombatEvent:
+                                logger.info(_("处理已完成的战斗事件."))
                                 runtimeContext._COUNTERCOMBAT+=1
-                                needRecoverBecauseCombat = False
+                                pendingCombatEvent = False
                                 runtimeContext._MEET_CHEST_OR_COMBAT = True
                                 if setting.DO_COMBAT_RECOVER:
                                     logger.info(_("由于面板配置, 进行战后恢复."))
@@ -2774,10 +2791,10 @@ def Factory():
                             ########### light the dark light
                             Press(FindCoordsOrElseExecuteFallbackAndWait("darklight_lightIt","darkLight",1))
                         case DungeonState.Chest:
-                            needRecoverBecauseChest = True
+                            pendingChestEvent = True
                             dungState = StateChest()
                         case DungeonState.Combat:
-                            needRecoverBecauseCombat =True
+                            pendingCombatEvent =True
                             StateCombat()
                             dungState = None
             case "manualSepDemon":
@@ -3232,6 +3249,61 @@ def Factory():
                     total_time = total_time + costtime
                     logger.info(_("第{a}次\"悬赏:蝎女+六手\"完成. \n该次花费时间{b:.2f}s.\n总计用时{c:.2f}s.\n平均用时{d:.2f}".format(a=runtimeContext._COUNTERDUNG,b=costtime, c=total_time, d=total_time/runtimeContext._COUNTERDUNG)),
                             summary=True)
+            case "FloralHoney":
+                total_time = 0
+                while 1:
+                    if setting._FORCESTOPING.is_set():
+                        break
+
+                    starttime = time.time()
+                    runtimeContext._COUNTERDUNG += 1
+
+                    logger.info(_("第一步: 时空跳跃..."))
+                    RestartableSequenceExecution(
+                        lambda: CursedWheelTimeLeap(chapter="cursedwheel_dhi", target="BeautifulOre")
+                        )
+                    Sleep(10)
+
+                    logger.info(_("第二步: 前往第四章主城..."))
+                    RestartableSequenceExecution(
+                        lambda: TeleportFromCityToWorldLocation("City_DHI","input swipe 54 1346 302 1571"),
+                        )
+
+                    logger.info(_("第三步: 接取悬赏..."))
+                    RestartableSequenceExecution(
+                        lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("guildRequest",["guild",[1,1]],1)),
+                        lambda:Sleep(2),
+                        lambda:Press(FindCoordsOrElseExecuteFallbackAndWait("bounty/Bounties",["guild","guildRequest","close","input swipe 600 1400 300 1400",[1,1]],1)),
+                        lambda:FindCoordsOrElseExecuteFallbackAndWait("EdgeOfTown",["return","leave",[1,1]],1)
+                        )
+
+                    logger.info(_("第四步: 前往第四章7F, 9F, 并抵达9F目标位置..."))
+                    quest._EOT = [
+                        ["press","DH",["EdgeOfTown",[1,1]],1],
+                        ["press","DH-R7","input swipe 650 900 650 250",1]
+                    ]
+                    RestartableSequenceExecution(
+                        lambda: StateEoT()
+                        )
+                    quest._SPECIALDIALOGOPTION = ["FloralHoney/floral","FloralHoney/pay"]
+                    RestartableSequenceExecution(
+                        lambda: StateDungeon([
+                            TargetInfo("stair_DH_R9","左上",[559, 714]),
+                            TargetInfo("position","左下",[184, 922]),
+                            TargetInfo("stair_DH_R7","右下",[334, 1236]),
+                            ])
+                        )
+
+                    logger.info(_("第五步: 退出副本..."))
+                    RestartableSequenceExecution(
+                        lambda: FindCoordsOrElseExecuteFallbackAndWait("Inn",["returnText","return","leaveDung","returntotown","blessing",[1,1],],2)
+                        )
+
+
+                    costtime = time.time()-starttime
+                    total_time = total_time + costtime
+                    logger.info(_("第{a}次\"华蜜\"完成. \n该次花费时间{b:.2f}s.\n总计用时{c:.2f}s.\n平均用时{d:.2f}".format(a=runtimeContext._COUNTERDUNG,b=costtime, c=total_time, d=total_time/runtimeContext._COUNTERDUNG)),
+                            summary=True)
             case "steeltrail":
                 total_time = 0
                 while 1:
@@ -3533,6 +3605,15 @@ def Factory():
                         return ", ".join(parts) + "."
                 def refillBait(): # 从钓鱼界面退出并回城并更换鱼饵.
                     Press([516, 1529])
+                    Sleep(2)
+                    # bait_area = CutRoI(ScreenShot(), [[121, 1081, 100, 100]])
+                    # bait_template = LoadTemplateImage("fishing/nobaitinbag")
+                    # bait_area_gray = cv2.cvtColor(bait_area, cv2.COLOR_BGR2GRAY) if bait_area.ndim == 3 else bait_area
+                    # bait_template_gray = cv2.cvtColor(bait_template, cv2.COLOR_BGR2GRAY) if bait_template.ndim == 3 else bait_template
+                    # bait_result = cv2.matchTemplate(bait_area_gray, bait_template_gray, cv2.TM_CCOEFF_NORMED)
+                    # _, bait_max_val, _, _ = cv2.minMaxLoc(bait_result)
+                    # logger.info(f"鱼饵对比结果: {bait_max_val:.2f}")
+                    # if bait_max_val >= 0.8:
                     if CheckIf(ScreenShot(),"fishing/nobaitinbag",[[121, 1081, 100, 100]]):
                         logger.info("真的没有了.")
                         RestartableSequenceExecution(
