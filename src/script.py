@@ -74,7 +74,6 @@ class FarmConfig:
         locals()[var_config_name] = var_default_value
     def __init__(self):
         #### 面板配置其他
-        self._FORCESTOPING = None
         self._FINISHINGCALLBACK = None
         self._MSGQUEUE = None
         #### 底层接口
@@ -119,7 +118,6 @@ class RuntimeContext:
 class FarmQuest:
     _TARGETINFOLIST = None
     _EOT = None
-    _preEOTcheck = None
     _FloorCheck = None
     _SPECIALDIALOGOPTION = None
     _SPECIALDIALOGOPTION_CALLBACK = None
@@ -270,7 +268,7 @@ def CheckAndRecoverDevice(setting : FarmConfig, runtimeContext: RuntimeContext, 
                     check=False,  # 不检查命令是否成功（进程可能不存在）
                     creationflags=CREATE_NO_WINDOW
                 )
-                time.sleep(1)
+                Sleep(1)
                 subprocess.run(
                     f"taskkill /f /im HD-Adb.exe",
                     shell=True,
@@ -308,7 +306,7 @@ def CheckAndRecoverDevice(setting : FarmConfig, runtimeContext: RuntimeContext, 
                         check=False,  # 不检查命令是否成功（进程可能不存在）
                         creationflags=CREATE_NO_WINDOW
                     )
-                    time.sleep(1)
+                    Sleep(1)
                     subprocess.run(
                         f"taskkill /F /IM MuMuVMMHeadless.exe",
                         shell=True,
@@ -317,7 +315,7 @@ def CheckAndRecoverDevice(setting : FarmConfig, runtimeContext: RuntimeContext, 
                         check=False,  # 不检查命令是否成功（进程可能不存在）
                         creationflags=CREATE_NO_WINDOW
                     )
-                    time.sleep(1)
+                    Sleep(1)
                 else:
                     logger.info(_("模拟器uid未知, 全杀了."))
                     subprocess.run(
@@ -328,7 +326,7 @@ def CheckAndRecoverDevice(setting : FarmConfig, runtimeContext: RuntimeContext, 
                         check=False,  # 不检查命令是否成功（进程可能不存在）
                         creationflags=CREATE_NO_WINDOW
                     )
-                    time.sleep(1)
+                    Sleep(1)
                     subprocess.run(
                         f"taskkill /f /im {emulator_SVC}",
                         shell=True,
@@ -337,7 +335,7 @@ def CheckAndRecoverDevice(setting : FarmConfig, runtimeContext: RuntimeContext, 
                         check=False,  # 不检查命令是否成功（进程可能不存在）
                         creationflags=CREATE_NO_WINDOW
                     )
-                    time.sleep(1)
+                    Sleep(1)
 
             # Unix/Linux 系统使用 pkill 命令
             else:
@@ -386,7 +384,7 @@ def CheckAndRecoverDevice(setting : FarmConfig, runtimeContext: RuntimeContext, 
                 creationflags=CREATE_NO_WINDOW)
 
             # 延时
-            time.sleep(5)
+            Sleep(5)
 
             # 启动后检查进程
             aft_results_list = CheckEmulator()
@@ -403,7 +401,7 @@ def CheckAndRecoverDevice(setting : FarmConfig, runtimeContext: RuntimeContext, 
             return False
         
         logger.info(_("等待模拟器启动..."))
-        time.sleep(15)
+        Sleep(15)
 
     # 以上是内部函数
     ####################################
@@ -411,11 +409,11 @@ def CheckAndRecoverDevice(setting : FarmConfig, runtimeContext: RuntimeContext, 
 
     if FORCE_RESTART_EMU:
         KillEmulator()
-        time.sleep(1)
+        Sleep(1)
     
     if FORCE_RESTART_ADB:
         KillAdb()
-        time.sleep(1)
+        Sleep(1)
 
     MAXRETRIES = 20
 
@@ -434,13 +432,13 @@ def CheckAndRecoverDevice(setting : FarmConfig, runtimeContext: RuntimeContext, 
             logger.info(_("检查adb服务..."))
             result = CMDLine(f"\"{adb_path}\" devices")
             if ("daemon not running" in result.stderr) or ("offline" in result.stdout):
-                time.sleep(2)
+                Sleep(2)
                 result = CMDLine(f"\"{adb_path}\" devices")
                 if ("daemon not running" in result.stderr) or ("offline" in result.stdout):
                     logger.info("adb服务未启动!\n启动adb服务...")
                     CMDLine(f"\"{adb_path}\" kill-server")
                     CMDLine(f"\"{adb_path}\" start-server")
-                    time.sleep(2)
+                    Sleep(2)
 
             logger.debug(_("尝试连接到adb..."))
             result = CMDLine(f"\"{adb_path}\" connect {setting.ADB_ADRESS}")
@@ -468,16 +466,16 @@ def CheckAndRecoverDevice(setting : FarmConfig, runtimeContext: RuntimeContext, 
                 logger.info(_("无法连接. 检查adb端口."))
 
             logger.info(_("连接失败: {a}".format(a=result.stderr.strip())))
-            time.sleep(2)
+            Sleep(2)
             KillEmulator()
             KillAdb()
-            time.sleep(2)
+            Sleep(2)
         except Exception as e:
             logger.error(_("重启ADB服务时出错: {a}".format(a=e)))
-            time.sleep(2)
+            Sleep(2)
             KillEmulator()
             KillAdb()
-            time.sleep(2)
+            Sleep(2)
             return None
     else:
         logger.info(_("达到最大重试次数，连接失败"))
@@ -552,54 +550,68 @@ def Factory():
             logger.info(_("ADB服务成功启动，设备已连接."))
     def DeviceShell(cmdStr):
         while True:
+            if GlobalStopEvent.is_set():
+                raise StopRequested()
             logger.debug(_("DeviceShell {a}".format(a=cmdStr)))
+
+            conn = None
             exception = None
             result = None
             completed = Event()
-            
+
             def adb_command_thread():
-                nonlocal exception, result
+                nonlocal conn, exception, result
                 try:
-                    result = setting._ADBDEVICE.shell(cmdStr, timeout=5)
+                    if setting._ADBDEVICE is None:
+                        raise RuntimeError(_("ADB设备未连接"))
+                    conn = setting._ADBDEVICE.create_connection(timeout=5)
+                    conn.send("shell:" + cmdStr)
+                    result = conn.read_all().decode("utf-8")
                 except Exception as e:
                     exception = e
                 finally:
+                    if conn is not None:
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
                     completed.set()
-            
-            thread = Thread(target=adb_command_thread)
-            thread.daemon = True
+
+            thread = Thread(target=adb_command_thread, daemon=True)
             thread.start()
-            
+
             try:
                 if not completed.wait(timeout=7):
-                    # 线程超时未完成
                     logger.warning(_("ADB命令执行超时: {a}".format(a=cmdStr)))
+                    # 关掉 worker 正在读的 socket, 让阻塞的 recv 立刻返回并结束线程.
+                    if conn is not None:
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+                    thread.join(timeout=1)
+                    if thread.is_alive():
+                        logger.warning(_("ADB命令线程未能退出: {a}".format(a=cmdStr)))
                     raise TimeoutError(_("ADB命令在7秒内未完成"))
-                
+
                 if exception is not None:
                     raise exception
-                    
+
                 return result
-            except ( RuntimeError, ConnectionResetError, cv2.error) as e:
+            except TimeoutError:
+                logger.info(_("ADB超时, 尝试重启ADB或模拟器程序..."))
+                ResetDevice(force_restart_adb=True)
+                Sleep(1)
+            except (RuntimeError, ConnectionError, cv2.error, OSError) as e:
                 logger.warning(_("ADB操作失败 ({a}): {b}").format(a=type(e).__name__, b=e))
                 logger.info(_("ADB操作失败, 尝试重启ADB或模拟器程序..."))
                 ResetDevice()
-                time.sleep(1)
-
-                continue
-            except TimeoutError as e:
-                logger.info(_("ADB超时, 尝试重启ADB或模拟器程序..."))             
-                ResetDevice(force_restart_adb=True)
-                time.sleep(1)
-
-                continue
+                Sleep(1)
             except Exception as e:
                 # 非预期异常直接抛出
                 logger.error(_("非预期的ADB异常({a}): {b}").format(a=type(e).__name__, b=e))
                 raise
     
-    def Sleep(t=1):
-        time.sleep(t)
     def ScreenShot():
         try:
             if "wizardry" not in DeviceShell("dumpsys window | grep mCurrentFocus"):
@@ -618,6 +630,8 @@ def Factory():
             pass
 
         while True:
+            if GlobalStopEvent.is_set():
+                raise StopRequested()
             try:
                 serial = setting._ADBDEVICE.serial
 
@@ -710,7 +724,7 @@ def Factory():
                     ResetDevice()
                 if isinstance(e, (AppKeepAliveError)):
                     logger.info(_("你开启了应用保活, 请关闭.\n请在\"设备设置-其他-应用运行\"中关闭."))
-                    setting._FORCESTOPING.set()
+                    GlobalStopEvent.set()
                     return
 
                 Sleep(1)
@@ -885,7 +899,7 @@ def Factory():
                 return pos
             return None
 
-    def CheckFloorName(screenImage, template_name, errorThreshold=0.075):
+    def CheckFloorName(screenImage, template_name, errorThreshold=0.1):
         """
         检查 screen 固定区域(150, 65, 600, 50)的楼层名是否与 template 匹配。
         - template 尺寸必须与 RoI 一致(600x50), 否则直接跳过。
@@ -1049,8 +1063,8 @@ def Factory():
                 and all(isinstance(v, (int, float)) for v in x))
     def FindCoordsOrElseExecuteFallbackAndWait(targetPattern, fallback, waitTime, SAVEIMAGE = False):
         for not_used in range(setting.MAX_TRY_LIMIT):
-            if setting._FORCESTOPING.is_set():
-                return None
+            if GlobalStopEvent.is_set():
+                raise StopRequested()
             
             scn = ScreenShot()
             if SAVEIMAGE:
@@ -1082,7 +1096,7 @@ def Factory():
                     actions = list(fallback)
                 else:
                     logger.error(_("错误: 非法的目标."))
-                    setting._FORCESTOPING.set()
+                    GlobalStopEvent.set()
                     return None
 
                 for p in actions:
@@ -1101,7 +1115,7 @@ def Factory():
                             Sleep(0.1 - waittime)
                     else:
                         logger.error(_("错误: 非法的目标{a}.".format(a=p)))
-                        setting._FORCESTOPING.set()
+                        GlobalStopEvent.set()
                         return None
                     
             # And Wait
@@ -1156,20 +1170,17 @@ def Factory():
         pass
     def RestartableSequenceExecution(*operations):
         while True:
-            if setting._FORCESTOPING.is_set():
-                logger.info(_("任务已停止."))
-                return
+            if GlobalStopEvent.is_set():
+                raise StopRequested()
             try:
                 for op in operations:
-                    if setting._FORCESTOPING.is_set():
-                        logger.info(_("任务已停止."))
-                        return
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
                     op()
                 return
             except RestartSignal:
-                if setting._FORCESTOPING.is_set():
-                    logger.info(_("任务已停止."))
-                    return
+                if GlobalStopEvent.is_set():
+                    raise StopRequested()
                 logger.info(_("任务进度重置中..."))
                 continue
     ##################################################################
@@ -1446,8 +1457,8 @@ def Factory():
             screen = ScreenShot()
             logger.info(_("状态检查中...(第{a}次)".format(a=counter+1)))
 
-            if setting._FORCESTOPING.is_set():
-                return State.Quit, DungeonState.Quit, screen
+            if GlobalStopEvent.is_set():
+                raise StopRequested()
 
             if TryPressRetry(screen):
                     Sleep(2)
@@ -1677,34 +1688,84 @@ def Factory():
         runtimeContext.NEED_RECOVER_WHEN_REST = True
     def StateEoT():
         runtimeContext._RESUMEAVAILABLE = False
-        if quest._preEOTcheck:
-            Press(CheckIf(ScreenShot(),quest._preEOTcheck))
 
-        def EoTStep(info):
-            if info[1]=="intoWorldMap":
-                TeleportFromCityToWorldLocation(*info[2])
-            elif info[1]=="EVENT":
-                FindCoordsOrElseExecuteFallbackAndWait(["openworldmap","dungFlag"], [[1,1],"EVENT",info[2]],2)
-            else:
-                pos = FindCoordsOrElseExecuteFallbackAndWait(info[1], info[2], info[3])
-                if info[0]=="press":
-                    Press(pos)
-        for info in quest._EOT[:-1]:
-            RestartableSequenceExecution(lambda i=info: EoTStep(i))
+        def mainEoT():
+            if not quest._EOT:
+                return
 
-        last = quest._EOT[-1]
-        if last[1] == "intoWorldMap":
-            TeleportFromCityToWorldLocation(*last[2])
-        else:
-            fb = [last[2], [1, 1]] if (isinstance(last[2], str) or _is_coord(last[2])) else [*last[2], [1, 1]]
-            RestartableSequenceExecution(
-                lambda fb=fb, last=last: FindCoordsOrElseExecuteFallbackAndWait(
-                    ["dungFlag", "GotoDung", last[1]], fb, 1
+            acts = {e[0]: e for e in quest._EOT}
+
+            while True:
+                if GlobalStopEvent.is_set():
+                    raise StopRequested()
+                # 先把画面推进到至少包含一个可用于定位的 flag.
+                # 找不到时由该函数自己按 fallback 重试, 超过上限会重启游戏.
+                FindCoordsOrElseExecuteFallbackAndWait(
+                    ["dungFlag", "EoTreturn", "worldmapflag", "openworldmap",
+                     "returntotown", "returntotown_DH", "Inn", "EdgeOfTown", "intoWorldMap"],
+                    ["return",[1, 1],"return",[1, 1],[1, 1]],
+                    2,
                 )
+                scn = ScreenShot()
+
+                # 终点
+                if CheckIf(scn, "dungFlag"):
+                    return
+
+                # 定位
+                if CheckIf(scn, "openworldmap") or CheckIf(scn, "returntotown") or CheckIf(scn, "returntotown_DH"):
+                    level = "L1"
+                elif CheckIf(scn, "EoTreturn"):
+                    level = "L2"
+                elif CheckIf(scn, "worldmapflag"):
+                    level = "worldmap"
+                elif CheckIf(scn, "Inn") or CheckIf(scn, "EdgeOfTown") or CheckIf(scn, "intoWorldMap"):
+                    level = "town"
+                else:
+                    continue
+
+                logger.info(_("当前层级: {a}".format(a=level)))
+
+                entry = acts.get(level)
+
+                # 行动: 层级决定操作
+                if entry:
+                    if level == "town":
+                        if entry[1] == "world":
+                            Press(FindCoordsOrElseExecuteFallbackAndWait(
+                                "intoWorldMap",
+                                ["closePartyInfo",
+                                    "closePartyInfo_waterway",
+                                    "closePartyInfo_fortress",
+                                    "return",[550, 1]],
+                                1))
+                        elif entry[1] == "EOT":
+                            Press(FindCoordsOrElseExecuteFallbackAndWait(
+                                "EdgeOfTown", ["return",[550, 1]], 1))
+
+                    elif level == "worldmap":
+                        TeleportFromCityToWorldLocation(
+                            entry[1],
+                            entry[2] if len(entry) > 2 else [1, 1],
+                            entry[3] if len(entry) > 3 else [550, 1],
+                        )
+
+                    elif level in ("L1", "L2"):
+                        FindCoordsOrElseExecuteFallbackAndWait(
+                            [entry[1],"dungFlag","GotoDung"],
+                            entry[2] if len(entry) > 2 else [1, 1],
+                            1,
+                        )
+                        Press(CheckIf(ScreenShot(), entry[1]))
+                        Sleep(1)
+                        Press(CheckIf(ScreenShot(), "GotoDung"))
+
+                # 等待动画结束
+                Sleep(1)                
+
+        RestartableSequenceExecution(
+            lambda: mainEoT()
             )
-        Press(CheckIf(ScreenShot(), quest._EOT[-1][1]))
-        Sleep(1)
-        Press(CheckIf(ScreenShot(), "GotoDung"))
         return
     def StateCombat():
         if runtimeContext._TIME_COMBAT==0:
@@ -2161,9 +2222,8 @@ def Factory():
         ##############################################
         while 1:
             logger.info("----------------------")
-            if setting._FORCESTOPING.is_set():
-                logger.info(_("即将停止脚本..."))
-                dungState = DungeonState.Quit
+            if GlobalStopEvent.is_set():
+                raise StopRequested()
             logger.info(_("当前状态(地下城): {a}".format(a=dungState)))
 
             match dungState:
@@ -2434,9 +2494,8 @@ def Factory():
         while 1:
             logger.info("======================")
             Sleep(1)
-            if setting._FORCESTOPING.is_set():
-                logger.info(_("即将停止脚本..."))
-                break
+            if GlobalStopEvent.is_set():
+                raise StopRequested()
             logger.info(_("当前状态: {a}".format(a=state)))
             match state:
                 case None:
@@ -2482,15 +2541,16 @@ def Factory():
                         lambda: StateDungeon(targetInfoList)
                         )
                     state = None
-        setting._FINISHINGCALLBACK()
+        if setting._FINISHINGCALLBACK:
+            setting._FINISHINGCALLBACK()
     def QuestFarm():
         nonlocal setting # 强制自动战斗 等等.
         nonlocal runtimeContext
         match setting.FARM_TARGET:
             case "7000G":
                 while 1:
-                    if setting._FORCESTOPING.is_set():
-                        break
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
 
                     starttime = time.time()
                     runtimeContext._COUNTERDUNG += 1
@@ -2563,8 +2623,8 @@ def Factory():
             case "fordraig":
                 quest._SPECIALDIALOGOPTION = ["fordraig/thedagger","fordraig/InsertTheDagger"]
                 while 1:
-                    if setting._FORCESTOPING.is_set():
-                        break
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
                     runtimeContext._COUNTERDUNG += 1
                     setting._SYSTEMAUTOCOMBAT = True
                     starttime = time.time()
@@ -2639,8 +2699,8 @@ def Factory():
                 logger.info(_("注意, 该流程不包括时间跳跃和接取任务, 请确保接取任务后再开启!"))
                 counter = 0
                 while 1:
-                    if setting._FORCESTOPING.is_set():
-                        break
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
                     t = time.time()
                     RestartableSequenceExecution(
                         lambda : StateInn()
@@ -2810,8 +2870,9 @@ def Factory():
                     lambda: CursedWheelTimeLeap(chapter="cursedwheel_dhi", target="BeautifulOre"))
 
                 quest._EOT = [
-                    ["press","COS/COS",["EdgeOfTown",[1,1]],1],
-                    ["press","COS/COSB2F",[1,1],1]
+                    ["town", "EOT"],
+                    ["L1", "COS/COS"],
+                    ["L2", "COS/COSB2F"]
                 ]
                 RestartableSequenceExecution(
                     lambda: StateEoT()
@@ -2823,8 +2884,8 @@ def Factory():
 
             case "LBC-oneGorgon":
                 while 1:
-                    if setting._FORCESTOPING.is_set():
-                        break
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
                     if runtimeContext._LAPTIME!= 0:
                         runtimeContext._TOTALTIME = runtimeContext._TOTALTIME + time.time() - runtimeContext._LAPTIME
                         logger.info(_("第{a}次三牛完成. 本次用时:{b}秒. 累计开箱子{c}, 累计战斗{d}, 累计用时{e}秒.".format(a=runtimeContext._COUNTERDUNG, b=round(time.time()-runtimeContext._LAPTIME,2),c=runtimeContext._COUNTERCHEST, d=runtimeContext._COUNTERCOMBAT, e=round(runtimeContext._TOTALTIME,2))),
@@ -2886,8 +2947,8 @@ def Factory():
             case "SSC-goldenchest":
                 while 1:
                     quest._SPECIALDIALOGOPTION = ["SSC/dotdotdot","SSC/shadow"]
-                    if setting._FORCESTOPING.is_set():
-                        break
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
                     if runtimeContext._LAPTIME!= 0:
                         runtimeContext._TOTALTIME = runtimeContext._TOTALTIME + time.time() - runtimeContext._LAPTIME
                         logger.info(_("第{a}次忍洞完成. 本次用时:{b}秒. 累计开箱子{c}, 累计战斗{d}, 累计用时{e}秒.".format(a=runtimeContext._COUNTERDUNG, b=round(time.time()-runtimeContext._LAPTIME,2),c=runtimeContext._COUNTERCHEST, d=runtimeContext._COUNTERCOMBAT, e=round(runtimeContext._TOTALTIME,2))),
@@ -2952,8 +3013,8 @@ def Factory():
                         )
             case "CaveOfSeperation":
                 while 1:
-                    if setting._FORCESTOPING.is_set():
-                        break
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
                     if runtimeContext._LAPTIME!= 0:
                         runtimeContext._TOTALTIME = runtimeContext._TOTALTIME + time.time() - runtimeContext._LAPTIME
                         logger.info(_("第{a}次约定之剑完成. 本次用时:{b}秒. 累计开箱子{c}, 累计战斗{d}, 累计用时{e}秒.".format(a=runtimeContext._COUNTERDUNG, b=round(time.time()-runtimeContext._LAPTIME,2),c=runtimeContext._COUNTERCHEST, d=runtimeContext._COUNTERCOMBAT, e=round(runtimeContext._TOTALTIME,2))),
@@ -3040,8 +3101,8 @@ def Factory():
                 pass
             case "gaintKiller":
                 while 1:
-                    if setting._FORCESTOPING.is_set():
-                        break
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
                     if runtimeContext._LAPTIME!= 0:
                         runtimeContext._TOTALTIME = runtimeContext._TOTALTIME + time.time() - runtimeContext._LAPTIME
                         logger.info(_("第{a}次巨人完成. 本次用时:{b}秒. 累计开箱子{c}, 累计战斗{d}, 累计用时{e}秒.".format(a=runtimeContext._COUNTERDUNG, b=round(time.time()-runtimeContext._LAPTIME,2),c=runtimeContext._COUNTERCHEST, d=runtimeContext._COUNTERCOMBAT, e=round(runtimeContext._TOTALTIME,2))),
@@ -3050,8 +3111,10 @@ def Factory():
                     runtimeContext._COUNTERDUNG+=1
 
                     quest._EOT = [
-                        ["press","impregnableFortress",["EdgeOfTown",[1,1]],1],
-                        ["press","fortressb7f",[1,1],1]]
+                        ["town", "EOT"],
+                        ["L1", "impregnableFortress"],
+                        ["L2", "fortressb7f"]
+                    ]
                     RestartableSequenceExecution(
                         lambda: StateEoT()
                         )
@@ -3070,8 +3133,8 @@ def Factory():
             case "Scorpionesses":
                 total_time = 0
                 while 1:
-                    if setting._FORCESTOPING.is_set():
-                        break
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
 
                     starttime = time.time()
                     runtimeContext._COUNTERDUNG += 1
@@ -3152,8 +3215,8 @@ def Factory():
             case "Scorpionesses_plus_6_hands":
                 total_time = 0
                 while 1:
-                    if setting._FORCESTOPING.is_set():
-                        break
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
 
                     starttime = time.time()
                     runtimeContext._COUNTERDUNG += 1
@@ -3252,8 +3315,8 @@ def Factory():
             case "FloralHoney":
                 total_time = 0
                 while 1:
-                    if setting._FORCESTOPING.is_set():
-                        break
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
 
                     starttime = time.time()
                     runtimeContext._COUNTERDUNG += 1
@@ -3279,8 +3342,9 @@ def Factory():
 
                     logger.info(_("第四步: 前往第四章7F, 9F, 并抵达9F目标位置..."))
                     quest._EOT = [
-                        ["press","DH",["EdgeOfTown",[1,1]],1],
-                        ["press","DH-R7","input swipe 650 900 650 250",1]
+                        ["town", "EOT"],
+                        ["L1", "DH"],
+                        ["L2", "DH-R7", "input swipe 650 900 650 250"]
                     ]
                     RestartableSequenceExecution(
                         lambda: StateEoT()
@@ -3296,7 +3360,7 @@ def Factory():
 
                     logger.info(_("第五步: 退出副本..."))
                     RestartableSequenceExecution(
-                        lambda: FindCoordsOrElseExecuteFallbackAndWait("Inn",["returnText","return","leaveDung","returntotown","blessing",[1,1],],2)
+                        lambda: FindCoordsOrElseExecuteFallbackAndWait("Inn",["returnText","return","leaveDung","returntotown","returntotown_DH","blessing",[1,1],],2)
                         )
 
 
@@ -3307,8 +3371,8 @@ def Factory():
             case "steeltrail":
                 total_time = 0
                 while 1:
-                    if setting._FORCESTOPING.is_set():
-                        break
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
 
                     starttime = time.time()
                     runtimeContext._COUNTERDUNG += 1
@@ -3340,13 +3404,13 @@ def Factory():
                 logger.info(_("开始睡觉."))
                 t = time.time()
                 for counter in range(9999):
-                    if setting._FORCESTOPING.is_set():
-                        break
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
                     RestartableSequenceExecution(
                             lambda:StateInn()
                             )
-                    if setting._FORCESTOPING.is_set():
-                        break
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
                     logger.info(_("完成了{a}次旅店休息.\n总计用时{c:.2f}s.\n平均用时{d:.2f}s.").format(a=counter+1, c=time.time()-t, d=(time.time()-t)/(counter+1)),summary=True)
             case "FFXI-Org":
                 counter = {
@@ -3368,8 +3432,8 @@ def Factory():
                 # reunionParty("FFXI/FFXIStone")
                 resetBag = False
                 while 1:
-                    if setting._FORCESTOPING.is_set():
-                        break
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
 
                     if CheckIf(ScreenShot(), "accept_death_cursedWheel_timeLeap",[[334, 1372, 231, 78]]):
                         if setting.ACTIVE_TRIUMPH == True:
@@ -3436,8 +3500,8 @@ def Factory():
                         return "none"
 
                     while 1:
-                        if setting._FORCESTOPING.is_set():
-                            break
+                        if GlobalStopEvent.is_set():
+                            raise StopRequested()
                         
                         result = CheckState(ScreenShot())
                         if ("retry" in result) or ("receive" in result):
@@ -3503,9 +3567,11 @@ def Factory():
                 counter = 0
                 start_time = time.time()
                 quest._FloorCheck = "stair_fortress3f"
-                quest._EOT =[["press","impregnableFortress",["EdgeOfTown",[1,1]],1],
-                             ["press","fortressb3f","input swipe 650 250 650 900",1]
-                            ]
+                quest._EOT = [
+                    ["town", "EOT"],
+                    ["L1", "impregnableFortress"],
+                    ["L2", "fortressb3f", "input swipe 650 250 650 900"]
+                ]
                 quest._SPECIALDIALOGOPTION = ["sandman/sandman_1",
                                               "sandman/sandman_2",
                                               "sandman/sandman_3",
@@ -3523,8 +3589,8 @@ def Factory():
 
                 
                 while 1:
-                    if setting._FORCESTOPING.is_set():
-                        break
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
                     
                     RestartableSequenceExecution(    
                         lambda: StateEoT()
@@ -3644,10 +3710,14 @@ def Factory():
                         Sleep(2)
                         Press([196, 1153])
                         Sleep(2)
+                        Press([464, 1386])
+                        Sleep(2)
                         FindCoordsOrElseExecuteFallbackAndWait("fishing/cast","return",3)
                 def goToFishing():
                     quest._EOT = [
-                        ["press","DH-R6",["EdgeOfTown","DH","input swipe 650 250 650 900"],1]
+                        ["town", "EOT"],
+                        ["L1", "DH", "input swipe 650 250 650 900"],
+                        ["L2", "DH-R6", "input swipe 650 250 650 900"]
                     ]
                     RestartableSequenceExecution(
                         lambda: StateEoT()
@@ -3661,8 +3731,8 @@ def Factory():
                 ################
                 while 1:
                     tick += 1
-                    if setting._FORCESTOPING.is_set():
-                        break
+                    if GlobalStopEvent.is_set():
+                        raise StopRequested()
 
                     scn = ScreenShot()
                     if TryPressRetry(scn) or Press(CheckIf(scn,"totitle")):
@@ -3688,9 +3758,10 @@ def Factory():
                     if CheckIf(scn, "fishing/cast"):
                         if CheckIf(scn,"fishing/nobait",[[530,1469,120,120]]):
                             nobait = CheckHow(scn,"fishing/nobait",[[530,1469,120,120]])
+                            sixbait = CheckHow(scn,"fishing/6bait",[[530,1469,120,120]])
                             eightbait = CheckHow(scn,"fishing/8bait",[[530,1469,120,120]])
                             ninebait = CheckHow(scn,"fishing/9bait",[[530,1469,120,120]])
-                            if (nobait > eightbait) and (nobait > ninebait):
+                            if (nobait > eightbait) and (nobait > ninebait) and (nobait > sixbait):
                                 logger.info("没有鱼饵了...")
                                 RestartableSequenceExecution(
                                     lambda: refillBait()
@@ -3741,12 +3812,13 @@ def Factory():
                     for i in range(40):
                         DeviceShell(f"input swipe 250 1200 850 1200 100")
             case "test":
-                TeleportFromCityToWorldLocation("City_DHI", "input swipe 54 1346 302 1571")
+                SaveImage(ScreenShot())
                 pass
                 
                     
         ##########################
-        setting._FINISHINGCALLBACK()
+        if setting._FINISHINGCALLBACK:
+            setting._FINISHINGCALLBACK()
         return
     def Farm(set:FarmConfig):
         nonlocal quest
@@ -3757,18 +3829,25 @@ def Factory():
         setting = set
         runtimeContext = RuntimeContext()
 
-        Sleep(1)
+        try:
+            Sleep(1)
 
-        ReloadStrategy()
-        
-        ResetDevice()
+            ReloadStrategy()
 
-        quest = LoadQuest(setting.FARM_TARGET)
-        if quest:
-            if quest._TYPE =="dungeon":
-                DungeonFarm()
+            ResetDevice()
+
+            quest = LoadQuest(setting.FARM_TARGET)
+            if quest:
+                if quest._TYPE =="dungeon":
+                    DungeonFarm()
+                else:
+                    QuestFarm()
             else:
-                QuestFarm()
-        else:
-            setting._FINISHINGCALLBACK()
+                if setting._FINISHINGCALLBACK:
+                    setting._FINISHINGCALLBACK()
+        except StopRequested:
+            # 停止信号可能从任意一层循环抛出, 在这里统一收尾.
+            logger.info(_("任务已停止."))
+            if setting._FINISHINGCALLBACK:
+                setting._FINISHINGCALLBACK()
     return Farm
