@@ -92,8 +92,21 @@ echo.
 pyinstaller %CONSOLE_FLAG% --onedir ^
     --paths=src ^
     --collect-submodules=ppadb ^
+    --hidden-import clr ^
+    --collect-all pythonnet ^
+    --collect-all clr_loader ^
+    --collect-all py7zr ^
+    --hidden-import bcj ^
+    --hidden-import inflate64 ^
+    --hidden-import pyppmd ^
+    --hidden-import multivolumefile ^
+    --hidden-import Cryptodome ^
+    --hidden-import brotli ^
+    --hidden-import backports.zstd ^
+    --collect-all webview ^
     --add-data "resources;resources/" ^
     --add-data "locale;locale/" ^
+    --add-data "src/ui.html;." ^
     src/main.py -n %APP_NAME%
 if errorlevel 1 (
     echo [ERROR] PyInstaller build failed.
