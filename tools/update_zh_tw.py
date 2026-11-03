@@ -117,6 +117,14 @@ def prepare_patched_src():
                             'with open("_update_restart.sh", "w") as f:',
                             'with open("_update_restart.sh", "w", encoding="utf-8") as f:'
                         )
+                        # 修補解壓函式以同時相容 .zip 與 .7z
+                        old_extract_7z = "if archive_path.lower().endswith('.7z'):"
+                        new_extract_dual = '''if archive_path.lower().endswith('.zip'):
+            import zipfile
+            with zipfile.ZipFile(archive_path, 'r') as zip_ref:
+                zip_ref.extractall(target_dir)
+        elif archive_path.lower().endswith('.7z'):'''
+                        tw_code_content = tw_code_content.replace(old_extract_7z, new_extract_dual)
                         # 自動適配解壓後可能存在單層子資料夾的情況
                         old_extract_call = 'self._extract_archive(archive_path, unpack_dir)'
                         new_extract_call = '''self._extract_archive(archive_path, unpack_dir)
@@ -174,6 +182,17 @@ del "%~f0"
 
                     with open(dst_file, 'w', encoding='utf-8') as f:
                         f.write(tw_code_content)
+                except Exception as e:
+                    print(f"[-] 轉換 {src_file} 時發生錯誤: {e}，複製原檔")
+                    shutil.copy2(src_file, dst_file)
+            elif file.endswith('.html'):
+                try:
+                    with open(src_file, 'r', encoding='utf-8') as f:
+                        html_content = f.read()
+                    tw_html_content = s2t(html_content)
+                    with open(dst_file, 'w', encoding='utf-8') as f:
+                        f.write(tw_html_content)
+                    print(f"[+] 已成功將 {src_file} 轉換繁體並寫入: {dst_file}")
                 except Exception as e:
                     print(f"[-] 轉換 {src_file} 時發生錯誤: {e}，複製原檔")
                     shutil.copy2(src_file, dst_file)
@@ -253,6 +272,34 @@ def patch_output_changes_log():
                 print(f"[+] 已成功將繁體更新日誌寫入打包產物: {dst_path}")
     except Exception as e:
         print(f"[-] 處理 CHANGES_LOG.md 時發生錯誤: {e}")
+
+def patch_output_ui_html():
+    """ 確保打包產物中的 ui.html 存在且為繁體中文 """
+    src_html = os.path.join('build', 'src_patched', 'ui.html')
+    if not os.path.exists(src_html):
+        src_html = os.path.join('src', 'ui.html')
+    if not os.path.exists(src_html):
+        return
+
+    try:
+        with open(src_html, 'r', encoding='utf-8') as f:
+            content = f.read()
+        tw_content = s2t(content)
+
+        possible_paths = [
+            os.path.join('app_build', 'wvd', 'ui.html'),
+            os.path.join('app_build', 'wvd', '_internal', 'ui.html'),
+            os.path.join('output', 'wvd', 'ui.html'),
+            os.path.join('output', 'wvd', '_internal', 'ui.html')
+        ]
+        for dst_path in possible_paths:
+            dst_dir = os.path.dirname(dst_path)
+            if os.path.exists(dst_dir):
+                with open(dst_path, 'w', encoding='utf-8') as f:
+                    f.write(tw_content)
+                print(f"[+] 已成功確保繁體 ui.html 存在於打包產物: {dst_path}")
+    except Exception as e:
+        print(f"[-] 處理打包產物 ui.html 時發生錯誤: {e}")
 
 def parse_po(po_filepath):
     if not os.path.exists(po_filepath):
@@ -451,6 +498,7 @@ def main():
     prepare_patched_src()
     patch_output_quest_json()
     patch_output_changes_log()
+    patch_output_ui_html()
 
     print("=== 繁體語系更新與編譯完成！ ===")
 

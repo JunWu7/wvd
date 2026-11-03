@@ -119,6 +119,7 @@ def run_step_2():
     shutil.rmtree('app_build', ignore_errors=True)
     shutil.rmtree('dist', ignore_errors=True)
     shutil.rmtree('build', ignore_errors=True)
+    shutil.rmtree('app_release', ignore_errors=True)
 
     # 執行 update_zh_tw.py
     res = subprocess.run([sys.executable, os.path.join('tools', 'update_zh_tw.py')])
@@ -126,13 +127,40 @@ def run_step_2():
         print("[錯誤] 繁體語系更新失敗！")
         sys.exit(1)
 
+    # 自動檢查必要依賴模組
+    try:
+        import webview
+        import py7zr
+    except ImportError:
+        print("[資訊] 檢測到缺少新版依賴 (pywebview 或 py7zr)，正在自動安裝 requirements.txt...")
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt'])
+
+    # 構建 PyInstaller 打包參數
+    ui_html_patched = os.path.join('build', 'src_patched', 'ui.html')
+    ui_html_data = f"{ui_html_patched if os.path.exists(ui_html_patched) else os.path.join('src', 'ui.html')};."
+
     # 執行 PyInstaller
     cmd = [
         sys.executable, '-m', 'PyInstaller', '--onedir', '-y', '--noconfirm',
         '--distpath', 'app_build',
+        '--paths', 'src',
+        '--collect-submodules', 'ppadb',
+        '--hidden-import', 'clr',
+        '--collect-all', 'pythonnet',
+        '--collect-all', 'clr_loader',
+        '--collect-all', 'py7zr',
+        '--hidden-import', 'bcj',
+        '--hidden-import', 'inflate64',
+        '--hidden-import', 'pyppmd',
+        '--hidden-import', 'multivolumefile',
+        '--hidden-import', 'Cryptodome',
+        '--hidden-import', 'brotli',
+        '--hidden-import', 'backports.zstd',
+        '--collect-all', 'webview',
         '--add-data', 'resources;resources/',
         '--add-data', 'locale;locale/',
         '--add-data', 'CHANGES_LOG.md;.',
+        '--add-data', ui_html_data,
         os.path.join('build', 'src_patched', 'main.py'),
         '-n', 'wvd'
     ]

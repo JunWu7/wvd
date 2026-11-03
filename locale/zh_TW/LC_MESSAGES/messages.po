@@ -1867,3 +1867,12 @@ msgstr "P 黛波拉_alt"
 msgid "P 黛波拉_sp"
 msgstr "P 黛波拉_sp"
 
+msgid "游戏启动后等待"
+msgstr "遊戲啓動後等待"
+
+msgid "重启游戏后等待指定秒数，再检查启动日志。"
+msgstr "重啓遊戲後等待指定秒數，再檢查啓動日誌。"
+
+msgid "秒"
+msgstr "秒"
+
