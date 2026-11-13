@@ -205,6 +205,8 @@ class AutoUpdater():
                     "当前版本缺少 7z 解压组件 (py7zr)，请手动下载新版安装包") from exc
             with py7zr.SevenZipFile(archive_path, 'r') as archive:
                 archive.extractall(target_dir)
+            # MOTW 不在这里清理: 统一由下次启动检测到版本变化时的
+            # preflight 递归清理, 避免下载流程和启动流程各清一次.
         else:
             raise Exception(f"不支持的压缩格式: {os.path.splitext(archive_path)[1]}")
 

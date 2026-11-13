@@ -1152,6 +1152,10 @@
                     <button class="btn btn-ghost btn-sm" id="manualDownload">手动下载</button>
                   </div>
                 </div>
+                <div class="notice-notes-list hidden" id="updateNotes">
+                  <div class="notice-notes-title">更新内容</div>
+                  <ul id="updateNotesList"></ul>
+                </div>
                 <div class="update-progress-wrap hidden" id="updateProgressWrap">
                   <div class="update-progress"><span id="updateProgressBar"></span></div>
                   <div class="update-progress-label" id="updateProgressLabel"></div>
@@ -1240,12 +1244,12 @@
             <div class="row">
               <div class="label">遇到善恶事件时</div>
               <div class="control">
-                <select class="w-lg" id="karmaSelect">
+                <select class="w-lg" id="karmaSelect" data-config="KARMA_ADJUST_REMAINING">
                   <option value="+0">维持现状</option>
                   <option value="+17">恶 → 中立，中立 → 善</option>
                   <option value="-17">善 → 中立，中立 → 恶</option>
                 </select>
-                <span class="pill gray" id="karmaPill">还需 +0 点</span>
+                <span class="pill gray" id="karmaPill">维持现状</span>
               </div>
             </div>
           </div>
@@ -1426,6 +1430,15 @@
                 <span class="inline-num"><input type="number" id="maxCrashLimit" data-config="MAX_CRASH_LIMIT" data-numeric="1" min="10"> 次</span>
               </div>
             </div>
+            <div class="row">
+              <div class="label">启用定时重启模拟器
+                <small>距上次启动/重启模拟器超过指定时长后，在下次回城时强制重启，缓解模拟器长时间运行的内存泄漏。</small>
+              </div>
+              <div class="control">
+                <span class="inline-num">每 <input type="number" id="restartEmuInterval" data-config="MAXIMUM_TIME_INTERVALS_BETWEEN_RESTARTING_EMU" data-numeric="1" min="1" max="12"> 小时</span>
+                <label class="switch"><input type="checkbox" id="restartEmuEnabled" data-config="ACTIVE_RESTART_EMU"><span class="track"></span></label>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -1582,15 +1595,15 @@
         <div class="stat-grid">
           <div class="stat">
             <div class="nums"><span class="v" id="statDungeon">-</span><span class="avg-val empty" id="avgDungeon">-</span></div>
-            <div class="meta"><span class="name">完成</span><span class="avg-label">平均用时</span></div>
+            <div class="meta"><span class="name">完成</span><span class="avg-label">平均用时（秒）</span></div>
           </div>
           <div class="stat">
             <div class="nums"><span class="v" id="statCol2">-</span><span class="avg-val empty" id="avgCol2">-</span></div>
-            <div class="meta"><span class="name" id="nameCol2">-</span><span class="avg-label">平均用时</span></div>
+            <div class="meta"><span class="name" id="nameCol2">-</span><span class="avg-label">平均用时（秒）</span></div>
           </div>
           <div class="stat">
             <div class="nums"><span class="v" id="statCol3">-</span><span class="avg-val empty" id="avgCol3">-</span></div>
-            <div class="meta"><span class="name" id="nameCol3">-</span><span class="avg-label">平均用时</span></div>
+            <div class="meta"><span class="name" id="nameCol3">-</span><span class="avg-label">平均用时（秒）</span></div>
           </div>
           <div class="stat special empty" id="eventStat" tabindex="0" aria-describedby="eventTooltip">
             <div class="nums"><span class="v" id="statEvents">0</span><span class="avg-val empty">—</span></div>
@@ -1968,26 +1981,6 @@
     REST_INTERVEL: (v) => { const el = $("#restInterval"); if (el) el.value = v == null ? 1 : v; },
     RE_ASSEMBLE_PARTY: (v) => { const el = $("#reassembleParty"); if (el) el.checked = !!v; },
     RE_ASSEMBLE_PARTY_INTERVAL: (v) => { const el = $("#reassembleInterval"); if (el) el.value = v == null ? 6 : v; },
-    KARMA_ADJUST: (v) => {
-      const val = String(v == null ? "+0" : v);
-      const sel = $("#karmaSelect");
-      if (sel) {
-        let matched = false;
-        for (const option of sel.options) {
-          if (option.value === val || (val !== "" && option.value.replace("+", "") === val.replace("+", ""))) {
-            sel.value = option.value;
-            matched = true;
-            break;
-          }
-        }
-        if (!matched) sel.value = "+0";
-      }
-      const pill = $("#karmaPill");
-      if (pill) {
-        const display = val.startsWith("+") || val.startsWith("-") ? val : "+" + val;
-        pill.textContent = "还需 " + display + " 点";
-      }
-    },
     ACTIVE_DIGGING: (v) => { const el = $("#zeroDigging"); if (el) el.checked = !!v; },
     ACTIVE_BEG_MONEY: (v) => { const el = $("#zeroBegMoney"); if (el) el.checked = !!v; },
     ACTIVE_FISHING: (v) => { const el = $("#zeroFishing"); if (el) el.checked = !!v; },
@@ -1999,7 +1992,43 @@
     MAX_TRY_LIMIT: (v) => { const el = $("#maxTryLimit"); if (el) el.value = v == null ? 25 : v; },
     MAX_CRASH_LIMIT: (v) => { const el = $("#maxCrashLimit"); if (el) el.value = v == null ? 10 : v; },
     STARTUP_WAIT_TIME: (v) => { const el = $("#startupWaitTime"); if (el) el.value = v == null ? 10 : v; },
+    ACTIVE_RESTART_EMU: (v) => { const el = $("#restartEmuEnabled"); if (el) el.checked = !!v; },
+    MAXIMUM_TIME_INTERVALS_BETWEEN_RESTARTING_EMU: (v) => { const el = $("#restartEmuInterval"); if (el) el.value = v == null ? 6 : v; },
   };
+
+  function renderKarmaDisplay(values) {
+    values = values || {};
+    const val = String(values.KARMA_ADJUST_REMAINING == null ? "+0" : values.KARMA_ADJUST_REMAINING);
+    // KARMA_MAINTAIN 为 True 时显示"维持现状"; 否则按剩余点数确定显示选项.
+    const maintain = !!values.KARMA_MAINTAIN;
+
+    const sel = $("#karmaSelect");
+    if (sel) {
+      if (maintain) {
+        sel.value = "+0";
+      } else {
+        let matched = false;
+        for (const option of sel.options) {
+          if (option.value === val || (val !== "" && option.value.replace("+", "") === val.replace("+", ""))) {
+            sel.value = option.value;
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) sel.value = val.startsWith("-") ? "-17" : "+17";
+      }
+    }
+
+    const pill = $("#karmaPill");
+    if (pill) {
+      if (maintain) {
+        pill.textContent = "维持现状";
+      } else {
+        const display = val.startsWith("+") || val.startsWith("-") ? val : "+" + val;
+        pill.textContent = "还需 " + display + " 点";
+      }
+    }
+  }
 
   function applyValues(values) {
     if (!values) return;
@@ -2008,6 +2037,7 @@
         try { bindings[key](values[key]); } catch (e) { console.error(key, e); }
       }
     });
+    renderKarmaDisplay(values);
     syncDependentInputs();
   }
 
@@ -2561,6 +2591,23 @@
     return bytes + " B";
   }
 
+  function setUpdateNotes(notes) {
+    const wrap = $("#updateNotes");
+    const list = $("#updateNotesList");
+    const lines = (Array.isArray(notes) ? notes : String(notes || "").split(/\r?\n/))
+      .map(line => String(line).trim())
+      .filter(Boolean);
+    if (list) {
+      list.textContent = "";
+      lines.forEach(line => {
+        const li = document.createElement("li");
+        li.textContent = line;
+        list.appendChild(li);
+      });
+    }
+    if (wrap) wrap.classList.toggle("hidden", lines.length === 0);
+  }
+
   function showUpdate(ev) {
     const card = $("#updateNotice");
     if (card) card.classList.remove("hidden");
@@ -2568,7 +2615,8 @@
     if (title) title.textContent = "下载更新 · v" + ev.version;
     const current = $("#updateCurrent");
     if (current) current.textContent = "当前版本 v" + (ev.current || (state && state.version) || "");
-    if (state) state.update = { latest: ev.version };
+    setUpdateNotes(ev.notes);
+    if (state) state.update = { latest: ev.version, notes: ev.notes || "" };
     showSummaryState("new", 4000);
     toast("发现新版本 v" + ev.version);
   }
@@ -2597,12 +2645,8 @@
 
   function fmtAvg(seconds) {
     if (!seconds || seconds <= 0) return "-";
-    if (seconds < 60) return Number(seconds).toFixed(2);
-    const total = Math.round(seconds);
-    const h = Math.floor(total / 3600);
-    const m = Math.floor(total % 3600 / 60);
-    const s = total % 60;
-    return h ? (h + ":" + pad(m) + ":" + pad(s)) : (pad(m) + ":" + pad(s));
+    // 统一用秒显示, 不再使用 "分:秒" / "时:分:秒" 格式.
+    return String(Number(Number(seconds).toFixed(2)));
   }
 
   function setStatValue(selector, value, isAvg) {
@@ -2703,6 +2747,12 @@
     if (btn) btn.classList.toggle("running", !!running);
     const text = $("#runText");
     if (text) text.textContent = running ? "停止脚本" : "脚本，启动！";
+    // 运行期间不允许修改善恶趋向; 停止后恢复.
+    const karmaSelect = $("#karmaSelect");
+    if (karmaSelect) {
+      karmaSelect.disabled = !!running;
+      karmaSelect.title = running ? "脚本运行中不可修改，停止后可调整" : "";
+    }
     updateStatusChip(!!running);
 
     if (runTimer) {
@@ -2971,6 +3021,15 @@
       if (el.type === "checkbox") value = el.checked;
       else if (el.dataset.numeric === "1") value = parseInt(el.value || "0", 10);
       else value = el.value;
+      // 善恶下拉框同时维护"维持"状态: 只有选择"维持现状"时 KARMA_MAINTAIN 才是 True.
+      if (key === "KARMA_ADJUST_REMAINING") {
+        const st = await call("save", {
+          KARMA_ADJUST_REMAINING: value,
+          KARMA_MAINTAIN: value === "+0",
+        });
+        if (st && st.ok) applyState(st);
+        return;
+      }
       const st = await call("save", { [key]: value });
       if (st && st.ok) applyState(st);
     });
@@ -3170,7 +3229,19 @@
       if (sumTime) sumTime.textContent = "00:00:00";
     }
     if (st.update && st.update.latest) {
-      showUpdate({ version: st.update.latest, current: st.version });
+      showUpdate({
+        version: st.update.latest,
+        current: st.version,
+        notes: st.update.notes || "",
+      });
+    }
+    if (st.changelog) {
+      uiDialog({
+        title: "更新说明 · v" + st.version,
+        message: st.changelog,
+        okText: "知道了",
+        cancelText: null,
+      });
     }
     hideBootGuard();
     renderLog("SYS", "界面已就绪。");
